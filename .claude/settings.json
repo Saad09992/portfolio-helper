@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\dev\\\\psx\" -Recurse -Filter \"*.tsx\" -o Name)",
+      "Bash(Select-Object -First 20)",
+      "Bash(Get-ChildItem -Path \"C:\\\\dev\\\\psx\\\\src\" -Filter \"*.css\" -o Name)",
+      "Bash(Get-ChildItem -Path c:\\\\dev\\\\psx\\\\src -Recurse -File)",
+      "Bash(Select-Object FullName)",
+      "Bash(git rm *)",
+      "Bash(git add *)"
+    ]
+  }
+}

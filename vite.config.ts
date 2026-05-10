@@ -3,10 +3,12 @@ import react from "@vitejs/plugin-react";
 import Database from "better-sqlite3";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { existsSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
+import { readFile, writeFile, rename } from "fs/promises";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = resolve(__dirname, "data/psx-stocks.db");
+const PORTFOLIO_PATH = resolve(__dirname, "data/portfolio.json");
 
 type Quote = {
   ticker: string;
@@ -136,6 +138,48 @@ export default defineConfig({
         process.stdout.write("[PSX] Plugin hook fired\n");
 
         server.middlewares.use((req, res, next) => {
+          if (req.url?.startsWith("/api/portfolio/load")) {
+            (async () => {
+              try {
+                if (!existsSync(PORTFOLIO_PATH)) {
+                  res.writeHead(200, { "Content-Type": "application/json" });
+                  res.end("null");
+                  return;
+                }
+                const raw = await readFile(PORTFOLIO_PATH, "utf-8");
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(raw);
+              } catch (err) {
+                res.writeHead(500, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: String(err) }));
+              }
+            })();
+            return;
+          }
+
+          if (req.url?.startsWith("/api/portfolio/save") && req.method === "POST") {
+            (async () => {
+              try {
+                const chunks: Buffer[] = [];
+                for await (const chunk of req) {
+                  chunks.push(chunk as Buffer);
+                }
+                const body = Buffer.concat(chunks).toString("utf-8");
+                JSON.parse(body); // validate
+                mkdirSync(dirname(PORTFOLIO_PATH), { recursive: true });
+                const tmp = `${PORTFOLIO_PATH}.tmp`;
+                await writeFile(tmp, body, "utf-8");
+                await rename(tmp, PORTFOLIO_PATH);
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ ok: true }));
+              } catch (err) {
+                res.writeHead(400, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: String(err) }));
+              }
+            })();
+            return;
+          }
+
           if (req.url?.startsWith("/api/psx/stocks")) {
             if (!existsSync(DB_PATH)) {
               res.writeHead(404, { "Content-Type": "application/json" });

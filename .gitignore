@@ -22,6 +22,8 @@ build/
 *.db-journal
 *.sqlite
 *.sqlite3
+data/portfolio.json
+data/portfolio.json.tmp
 
 # Logs
 *.log

@@ -10,6 +10,7 @@ import {
   storageKey,
 } from "./utils";
 import { applyMarketData, fetchDividends, fetchMarketData } from "./services/psx-scraper";
+import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
 
 type SectorBucket = {
   sector: string;
@@ -52,9 +53,32 @@ type DraftInvestment = {
   valueEom: number;
 };
 
+type PortfolioSnapshot = {
+  date: string;
+  totalValue: number;
+  totalCost: number;
+  gainLoss: number;
+};
+
+type SortDir = "asc" | "desc";
+type HoldingsSortKey =
+  | "ticker"
+  | "name"
+  | "sector"
+  | "shares"
+  | "costBasis"
+  | "price"
+  | "dayChangePct"
+  | "divYield"
+  | "marketValue"
+  | "weight"
+  | "pnlToday"
+  | "gainLoss";
+
 const cashStorageKey = `${storageKey}:cash-buckets`;
 const targetStorageKey = `${storageKey}:targets`;
 const investStorageKey = `${storageKey}:investments`;
+const historyStorageKey = `${storageKey}:history`;
 
 const emptyDraft: DraftHolding = {
   ticker: "",
@@ -99,6 +123,12 @@ function App() {
   const [investments, setInvestments] = useState<InvestmentEntry[]>(() => loadInvestments());
   const [investDraft, setInvestDraft] = useState<DraftInvestment>(emptyInvestmentDraft);
   const [investError, setInvestError] = useState("");
+  const [history, setHistory] = useState<PortfolioSnapshot[]>(() => loadHistory());
+  const [holdingsSearch, setHoldingsSearch] = useState("");
+  const [holdingsSort, setHoldingsSort] = useState<{ key: HoldingsSortKey | null; dir: SortDir }>({
+    key: null,
+    dir: "desc",
+  });
 
   const [fetching, setFetching] = useState(false);
   const [draftError, setDraftError] = useState("");
@@ -120,6 +150,42 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(investStorageKey, JSON.stringify(investments));
   }, [investments]);
+
+  useEffect(() => {
+    window.localStorage.setItem(historyStorageKey, JSON.stringify(history));
+  }, [history]);
+
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const data = await loadPortfolioFromDisk();
+      if (cancelled || !data) {
+        hydratedRef.current = true;
+        return;
+      }
+      if (Array.isArray(data.holdings)) setHoldings(data.holdings as Holding[]);
+      if (data.cash && typeof data.cash === "object") setCashDraft(data.cash as CashBuckets);
+      if (Array.isArray(data.targets)) setTargets(data.targets as TargetAllocation[]);
+      if (Array.isArray(data.investments)) setInvestments(data.investments as InvestmentEntry[]);
+      if (Array.isArray(data.history)) setHistory(data.history as PortfolioSnapshot[]);
+      hydratedRef.current = true;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    savePortfolioToDisk({
+      holdings,
+      cash: cashDraft,
+      targets,
+      investments,
+      history,
+    });
+  }, [holdings, cashDraft, targets, investments, history]);
 
   const holdingsWithCash = useMemo(
     () => buildHoldingsWithCash(holdings, cashDraft),
@@ -240,6 +306,62 @@ function App() {
     const pnlPct = totalInvested > 0 ? (pnlValue / totalInvested) * 100 : 0;
     return { totalInvested, latestValue, pnlValue, pnlPct, count: investmentRows.length };
   }, [investmentRows]);
+
+  const sortedHoldings = useMemo(() => {
+    const q = holdingsSearch.trim().toLowerCase();
+    const filtered = q
+      ? portfolio.holdings.filter(
+          (h) =>
+            h.ticker.toLowerCase().includes(q) ||
+            h.name.toLowerCase().includes(q) ||
+            h.sector.toLowerCase().includes(q),
+        )
+      : [...portfolio.holdings];
+
+    const { key, dir } = holdingsSort;
+    if (!key) return filtered;
+
+    const mult = dir === "asc" ? 1 : -1;
+    const valueOf = (h: typeof filtered[number]): string | number => {
+      switch (key) {
+        case "ticker": return h.ticker;
+        case "name": return h.name;
+        case "sector": return h.sector;
+        case "shares": return h.shares;
+        case "costBasis": return h.costBasis;
+        case "price": return h.price;
+        case "dayChangePct": return h.dayChangePct;
+        case "divYield": return h.costBasis > 0 ? (h.dividendPerShare / h.costBasis) * 100 : 0;
+        case "marketValue": return h.marketValue;
+        case "weight": return h.weight;
+        case "pnlToday": return h.marketValue * h.dayChangePct / (100 + h.dayChangePct || 1);
+        case "gainLoss": return h.gainLoss;
+      }
+    };
+
+    filtered.sort((a, b) => {
+      const aCash = a.id.startsWith("cash-");
+      const bCash = b.id.startsWith("cash-");
+      if (aCash && !bCash) return 1;
+      if (!aCash && bCash) return -1;
+      const va = valueOf(a);
+      const vb = valueOf(b);
+      if (typeof va === "string" && typeof vb === "string") {
+        return va.localeCompare(vb) * mult;
+      }
+      return ((va as number) - (vb as number)) * mult;
+    });
+
+    return filtered;
+  }, [portfolio.holdings, holdingsSearch, holdingsSort]);
+
+  function toggleSort(key: HoldingsSortKey) {
+    setHoldingsSort((cur) => {
+      if (cur.key !== key) return { key, dir: "desc" };
+      if (cur.dir === "desc") return { key, dir: "asc" };
+      return { key: null, dir: "desc" };
+    });
+  }
 
   const treemapItems = useMemo(() => {
     if (treemapMode === "sector") {
@@ -427,11 +549,62 @@ function App() {
       ]);
       const { holdings: updated } = applyMarketData(holdings, quotes, dividends);
       setHoldings(updated);
+
+      const snapshot = computePortfolio(buildHoldingsWithCash(updated, cashDraft));
+      setHistory((cur) => {
+        const next = [
+          ...cur,
+          {
+            date: new Date().toISOString(),
+            totalValue: snapshot.totalValue,
+            totalCost: snapshot.totalCost,
+            gainLoss: snapshot.totalGainLoss,
+          },
+        ];
+        return next.slice(-365);
+      });
     } catch {
       // ignore
     } finally {
       setFetching(false);
     }
+  }
+
+  function exportPortfolio() {
+    const data = {
+      holdings,
+      cash: cashDraft,
+      targets,
+      investments,
+      history,
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `psx-portfolio-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importPortfolio(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result);
+        const data = JSON.parse(text);
+        if (!confirm("Replace current data with imported file? This cannot be undone.")) return;
+        if (Array.isArray(data.holdings)) setHoldings(data.holdings);
+        if (data.cash && typeof data.cash === "object") setCashDraft(data.cash);
+        if (Array.isArray(data.targets)) setTargets(data.targets);
+        if (Array.isArray(data.investments)) setInvestments(data.investments);
+        if (Array.isArray(data.history)) setHistory(data.history);
+      } catch (err) {
+        alert(`Import failed: ${err instanceof Error ? err.message : "Invalid file"}`);
+      }
+    };
+    reader.readAsText(file);
   }
 
   return (
@@ -465,6 +638,23 @@ function App() {
           >
             {fetching ? "Fetching..." : "Refresh prices"}
           </button>
+          <button type="button" className="button" onClick={exportPortfolio}>
+            Export
+          </button>
+          <label className="button" htmlFor="import-portfolio-file">
+            Import
+          </label>
+          <input
+            id="import-portfolio-file"
+            className="sr-only"
+            type="file"
+            accept=".json,application/json"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) importPortfolio(file);
+              event.target.value = "";
+            }}
+          />
         </div>
       </section>
 
@@ -593,6 +783,17 @@ function App() {
           value={formatPercent(yieldOnCost)}
           detail="Annual dividend / equity cost"
         />
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="panel-kicker">History</p>
+            <h2>Portfolio value over time</h2>
+          </div>
+          <span className="panel-meta">{history.length} snapshot{history.length === 1 ? "" : "s"} · saved on price refresh</span>
+        </div>
+        <PortfolioHistoryChart snapshots={history} />
       </section>
 
       <section className="dashboard-grid dual">
@@ -983,37 +1184,43 @@ function App() {
             <p className="panel-kicker">Holdings</p>
             <h2>Portfolio breakdown</h2>
           </div>
-          <span className="panel-meta">Client-side calculations</span>
+          <input
+            type="text"
+            className="holdings-search"
+            placeholder="Search ticker, name, sector..."
+            value={holdingsSearch}
+            onChange={(e) => setHoldingsSearch(e.target.value)}
+          />
         </div>
 
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Ticker</th>
-                <th>Name</th>
-                <th>Sector</th>
-                <th className="right">Shares</th>
-                <th className="right">Avg price</th>
-                <th className="right">Current price</th>
-                <th className="right">Day %</th>
-                <th className="right">Div yield</th>
-                <th className="right">Market value</th>
-                <th className="right">Weight</th>
-                <th className="right">P&amp;L today</th>
-                <th className="right">P&amp;L total</th>
+                <SortHeader label="Ticker" sortKey="ticker" sort={holdingsSort} onClick={toggleSort} />
+                <SortHeader label="Name" sortKey="name" sort={holdingsSort} onClick={toggleSort} />
+                <SortHeader label="Sector" sortKey="sector" sort={holdingsSort} onClick={toggleSort} />
+                <SortHeader label="Shares" sortKey="shares" sort={holdingsSort} onClick={toggleSort} align="right" />
+                <SortHeader label="Avg price" sortKey="costBasis" sort={holdingsSort} onClick={toggleSort} align="right" />
+                <SortHeader label="Current price" sortKey="price" sort={holdingsSort} onClick={toggleSort} align="right" />
+                <SortHeader label="Day %" sortKey="dayChangePct" sort={holdingsSort} onClick={toggleSort} align="right" />
+                <SortHeader label="Div yield" sortKey="divYield" sort={holdingsSort} onClick={toggleSort} align="right" />
+                <SortHeader label="Market value" sortKey="marketValue" sort={holdingsSort} onClick={toggleSort} align="right" />
+                <SortHeader label="Weight" sortKey="weight" sort={holdingsSort} onClick={toggleSort} align="right" />
+                <SortHeader label="P&L today" sortKey="pnlToday" sort={holdingsSort} onClick={toggleSort} align="right" />
+                <SortHeader label="P&L total" sortKey="gainLoss" sort={holdingsSort} onClick={toggleSort} align="right" />
                 <th className="right">Action</th>
               </tr>
             </thead>
             <tbody>
-              {portfolio.holdings.length === 0 ? (
+              {sortedHoldings.length === 0 ? (
                 <tr>
                   <td colSpan={14} className="empty-state">
-                    Import a CSV or load sample data to populate the dashboard.
+                    {holdingsSearch ? "No matches." : "Import a CSV or load sample data to populate the dashboard."}
                   </td>
                 </tr>
               ) : (
-                portfolio.holdings.map((holding) => {
+                sortedHoldings.map((holding) => {
                   const syntheticCash = holding.id.startsWith("cash-");
                   return (
                     <tr key={holding.id}>
@@ -1140,7 +1347,17 @@ function App() {
               />
             </label>
             <label className="field">
-              <span>Value EOM</span>
+              <span>
+                Value EOM
+                <button
+                  type="button"
+                  className="invest-fill-current"
+                  onClick={() => setInvestDraft((c) => ({ ...c, valueEom: portfolio.totalValue }))}
+                  title="Fill with current portfolio total value"
+                >
+                  Use current
+                </button>
+              </span>
               <input
                 type="number"
                 step="0.01"
@@ -1336,6 +1553,18 @@ function loadInvestments(): InvestmentEntry[] {
 
   try {
     const parsed = JSON.parse(raw) as InvestmentEntry[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadHistory(): PortfolioSnapshot[] {
+  if (typeof window === "undefined") return [];
+  const raw = window.localStorage.getItem(historyStorageKey);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as PortfolioSnapshot[];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -1600,6 +1829,31 @@ function Combobox({
   );
 }
 
+function SortHeader({
+  label,
+  sortKey,
+  sort,
+  onClick,
+  align,
+}: {
+  label: string;
+  sortKey: HoldingsSortKey;
+  sort: { key: HoldingsSortKey | null; dir: SortDir };
+  onClick: (k: HoldingsSortKey) => void;
+  align?: "right";
+}) {
+  const active = sort.key === sortKey;
+  const arrow = active ? (sort.dir === "asc" ? " ▲" : " ▼") : "";
+  return (
+    <th className={align === "right" ? "right sortable" : "sortable"}>
+      <button type="button" className="sort-btn" onClick={() => onClick(sortKey)}>
+        {label}
+        <span className="sort-arrow">{arrow}</span>
+      </button>
+    </th>
+  );
+}
+
 function ActionRow({
   item,
   kind,
@@ -1636,6 +1890,117 @@ function ActionRow({
         )}
         <span className="action-row-impact">{impact.toFixed(1)}% of book</span>
       </div>
+    </div>
+  );
+}
+
+function PortfolioHistoryChart({
+  snapshots,
+}: {
+  snapshots: PortfolioSnapshot[];
+}) {
+  if (snapshots.length < 2) {
+    return (
+      <div className="chart-empty">
+        Refresh prices at least twice to see portfolio value over time.
+      </div>
+    );
+  }
+
+  const W = 800;
+  const H = 280;
+  const padL = 75;
+  const padR = 20;
+  const padT = 20;
+  const padB = 44;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  const values = snapshots.map((s) => s.totalValue);
+  const minV = Math.min(...values, ...snapshots.map((s) => s.totalCost));
+  const maxV = Math.max(...values, ...snapshots.map((s) => s.totalCost));
+  const range = maxV - minV || 1;
+  const yMax = maxV + range * 0.1;
+  const yMin = Math.max(0, minV - range * 0.1);
+
+  const x = (i: number) =>
+    padL + (snapshots.length === 1 ? innerW / 2 : (i / (snapshots.length - 1)) * innerW);
+  const y = (v: number) => padT + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
+
+  const valuePoints = snapshots.map((s, i) => ({ x: x(i), y: y(s.totalValue) }));
+  const costPoints = snapshots.map((s, i) => ({ x: x(i), y: y(s.totalCost) }));
+
+  function smoothPath(pts: { x: number; y: number }[]) {
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] ?? pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2] ?? p2;
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+    }
+    return d;
+  }
+
+  const valuePath = smoothPath(valuePoints);
+  const costPath = smoothPath(costPoints);
+  const fillPath = `${valuePath} L ${valuePoints[valuePoints.length - 1].x} ${y(yMin)} L ${valuePoints[0].x} ${y(yMin)} Z`;
+
+  const gridSteps = 4;
+  const grid = Array.from({ length: gridSteps + 1 }, (_, i) => {
+    const v = yMin + ((yMax - yMin) * i) / gridSteps;
+    return { v, y: y(v) };
+  });
+
+  const labelEvery = Math.max(1, Math.ceil(snapshots.length / 6));
+
+  return (
+    <div className="invest-chart">
+      <div className="invest-chart-legend">
+        <span className="invest-chart-legend-item">
+          <span className="invest-chart-swatch invest-chart-swatch--total" />
+          Value
+        </span>
+        <span className="invest-chart-legend-item">
+          <span className="invest-chart-swatch invest-chart-swatch--cost" />
+          Cost
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="invest-chart-svg" preserveAspectRatio="none">
+        {grid.map((g, i) => (
+          <g key={i}>
+            <line className="invest-chart-grid" x1={padL} x2={W - padR} y1={g.y} y2={g.y} />
+            <text className="invest-chart-axis" x={padL - 8} y={g.y + 4} textAnchor="end">
+              Rs {Math.round(g.v).toLocaleString()}
+            </text>
+          </g>
+        ))}
+
+        <path className="invest-chart-step-fill" d={fillPath} />
+        <path className="invest-chart-cost" d={costPath} />
+        <path className="invest-chart-line" d={valuePath} />
+
+        {valuePoints.map((p, i) => (
+          <circle key={i} className="invest-chart-dot" cx={p.x} cy={p.y} r={3}>
+            <title>
+              {snapshots[i].date.slice(0, 10)} · {snapshots[i].totalValue.toLocaleString()}
+            </title>
+          </circle>
+        ))}
+
+        {snapshots.map((s, i) => {
+          if (i % labelEvery !== 0 && i !== snapshots.length - 1) return null;
+          return (
+            <text key={i} className="invest-chart-axis" x={x(i)} y={H - padB + 18} textAnchor="middle">
+              {s.date.slice(5, 10)}
+            </text>
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -1823,12 +2188,11 @@ function Treemap({
       <div className="treemap-grid">
         {rows.map((row, ri) => {
           const rowWeight = row.reduce((s, r) => s + r.weight, 0);
-          const rowHeightPct = (rowWeight / totalWeight) * 100;
           return (
             <div
               key={ri}
               className="treemap-row"
-              style={{ height: `${rowHeightPct}%` }}
+              style={{ flexGrow: rowWeight, flexShrink: 1, flexBasis: 0 }}
             >
               {row.map((item) => {
                 const ci = colorIdx++;

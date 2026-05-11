@@ -64,9 +64,20 @@ function parsePsxHtml(html: string): Quote[] {
   return quotes;
 }
 
+type Payout = {
+  announcementDate: string;
+  bookClosureDate: string;
+  dividendPerShare: number;
+};
+
 async function fetchDividend(
   ticker: string,
-): Promise<{ ticker: string; dividendPerShare: number; payoutDate: string } | null> {
+): Promise<{
+  ticker: string;
+  dividendPerShare: number;
+  payoutDate: string;
+  payouts: Payout[];
+} | null> {
   try {
     const res = await fetch("https://dps.psx.com.pk/payouts", {
       method: "POST",
@@ -85,44 +96,61 @@ async function fetchDividend(
     // and Book Closure Date. Face value is Rs 10 by default on PSX.
     const rows = html.split("<tr>").slice(1);
     const faceValue = 10;
-    let totalDps = 0;
-    let latestDate = "";
+    const payouts: Payout[] = [];
+    let latestPaidDate = "";
     const now = new Date();
     const oneYearAgo = new Date(now);
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
     for (const row of rows) {
-      // Extract announcement date
-      const dateMatch = row.match(
-        /(\w+ \d{1,2}, \d{4})/,
-      );
+      const dateMatch = row.match(/(\w+ \d{1,2}, \d{4})/);
       if (!dateMatch) continue;
       const announcementDate = new Date(dateMatch[1]);
       if (announcementDate < oneYearAgo) continue;
 
-      // Extract dividend percentage like "70%" or "75%"
       const pctMatch = row.match(/(\d+(?:\.\d+)?)%/);
       if (!pctMatch) continue;
 
       const dps = (parseFloat(pctMatch[1]) / 100) * faceValue;
-      totalDps += dps;
+      if (dps <= 0) continue;
 
-      // Track latest book closure date for payoutDate
       const closureMatch = row.match(
         /(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})/,
       );
-      if (closureMatch && !latestDate) {
+      let bookClosureIso = "";
+      if (closureMatch) {
         const [d, m, y] = closureMatch[2].split("/");
-        latestDate = `${y}-${m}-${d}`;
+        bookClosureIso = `${y}-${m}-${d}`;
+      }
+
+      payouts.push({
+        announcementDate: announcementDate.toISOString().slice(0, 10),
+        bookClosureDate: bookClosureIso,
+        dividendPerShare: Math.round(dps * 100) / 100,
+      });
+
+      const closureTs = bookClosureIso ? new Date(bookClosureIso).getTime() : NaN;
+      if (
+        bookClosureIso &&
+        Number.isFinite(closureTs) &&
+        closureTs <= now.getTime() &&
+        (!latestPaidDate || bookClosureIso > latestPaidDate)
+      ) {
+        latestPaidDate = bookClosureIso;
       }
     }
 
-    if (totalDps <= 0) return null;
+    if (payouts.length === 0) return null;
+
+    // Sum across full TTM window (paid + announced). Yield-on-cost uses paid
+    // subset client-side; this preserves the legacy field for callers.
+    const totalDps = payouts.reduce((s, p) => s + p.dividendPerShare, 0);
 
     return {
       ticker: ticker.toUpperCase(),
       dividendPerShare: Math.round(totalDps * 100) / 100,
-      payoutDate: latestDate,
+      payoutDate: latestPaidDate,
+      payouts,
     };
   } catch {
     return null;

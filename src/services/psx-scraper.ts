@@ -1,4 +1,4 @@
-import type { Holding } from "../types";
+import type { Holding, Payout } from "../types";
 
 export type MarketQuote = {
   ticker: string;
@@ -16,6 +16,7 @@ type DividendInfo = {
   ticker: string;
   dividendPerShare: number;
   payoutDate: string;
+  payouts?: Payout[];
 };
 
 export async function fetchMarketData(): Promise<MarketQuote[]> {
@@ -84,6 +85,7 @@ export function applyMarketData(
       ...(div && {
         dividendPerShare: div.dividendPerShare,
         payoutDate: div.payoutDate,
+        payouts: div.payouts ?? [],
       }),
     };
   });

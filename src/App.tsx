@@ -2,15 +2,31 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Holding } from "./types";
 import {
   computePortfolio,
+  computeTwrIndex,
   createId,
+  formatCompactCurrency,
   formatCurrency,
+  formatDateLong,
+  formatDateShort,
   formatPercent,
-  parseHoldingsCsv,
+  formatRelativeTime,
+  formatSignedPercent,
   sampleHoldings,
   storageKey,
+  xirr,
 } from "./utils";
+import {
+  ChartTooltip,
+  buildCatmullRomPath,
+  niceTicks,
+  useChartHover,
+} from "./chartHelpers";
+import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchDividends, fetchMarketData } from "./services/psx-scraper";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
+
+const BACKUP_SCHEMA_VERSION = 1;
+const lastFetchedStorageKey = `${storageKey}:last-fetched`;
 
 type SectorBucket = {
   sector: string;
@@ -119,6 +135,7 @@ function App() {
   const [targetStatusFilter, setTargetStatusFilter] = useState<"all" | "over" | "under" | "ontrack">("all");
   const [targetSort, setTargetSort] = useState<"drift" | "name" | "weight">("drift");
   const [treemapMode, setTreemapMode] = useState<"sector" | "ticker">("sector");
+  const [allocationView, setAllocationView] = useState<"map" | "ranked">("map");
   const [page, setPage] = useState<"overview" | "holdings" | "targets" | "income" | "invest">("overview");
   const [investments, setInvestments] = useState<InvestmentEntry[]>(() => loadInvestments());
   const [investDraft, setInvestDraft] = useState<DraftInvestment>(emptyInvestmentDraft);
@@ -131,6 +148,11 @@ function App() {
   });
 
   const [fetching, setFetching] = useState(false);
+  const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(
+    () => loadLastFetchedAt(),
+  );
+
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [draftError, setDraftError] = useState("");
   const [cashError, setCashError] = useState("");
   const [targetError, setTargetError] = useState("");
@@ -155,6 +177,14 @@ function App() {
     window.localStorage.setItem(historyStorageKey, JSON.stringify(history));
   }, [history]);
 
+  useEffect(() => {
+    if (lastFetchedAt) {
+      window.localStorage.setItem(lastFetchedStorageKey, lastFetchedAt);
+    } else {
+      window.localStorage.removeItem(lastFetchedStorageKey);
+    }
+  }, [lastFetchedAt]);
+
   const hydratedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
@@ -169,6 +199,7 @@ function App() {
       if (Array.isArray(data.targets)) setTargets(data.targets as TargetAllocation[]);
       if (Array.isArray(data.investments)) setInvestments(data.investments as InvestmentEntry[]);
       if (Array.isArray(data.history)) setHistory(data.history as PortfolioSnapshot[]);
+      if (typeof data.lastFetchedAt === "string") setLastFetchedAt(data.lastFetchedAt);
       hydratedRef.current = true;
     })();
     return () => {
@@ -184,8 +215,9 @@ function App() {
       targets,
       investments,
       history,
+      lastFetchedAt,
     });
-  }, [holdings, cashDraft, targets, investments, history]);
+  }, [holdings, cashDraft, targets, investments, history, lastFetchedAt]);
 
   const holdingsWithCash = useMemo(
     () => buildHoldingsWithCash(holdings, cashDraft),
@@ -209,16 +241,207 @@ function App() {
   const cashWeight = portfolio.totalValue > 0 ? cashDraft.available / portfolio.totalValue : 0;
   const cashMessage = getCashDeploymentIdea(cashWeight);
 
-  const annualizedDividendIncome = nonCashPortfolio.reduce(
-    (sum, holding) => sum + holding.shares * holding.dividendPerShare,
-    0,
-  );
+  const todayTs = Date.now();
+
+  // TTM PAID dividends only — book closure date already past.
+  const annualizedDividendIncome = nonCashPortfolio.reduce((sum, holding) => {
+    if (holding.payouts && holding.payouts.length > 0) {
+      const paid = holding.payouts.reduce((s, p) => {
+        if (!p.bookClosureDate) return s;
+        const ts = new Date(p.bookClosureDate).getTime();
+        if (!Number.isFinite(ts) || ts > todayTs) return s;
+        return s + p.dividendPerShare;
+      }, 0);
+      return sum + holding.shares * paid;
+    }
+    // Fallback: use legacy field (paid + unpaid TTM mix).
+    return sum + holding.shares * holding.dividendPerShare;
+  }, 0);
+
   const equityCost = nonCashPortfolio.reduce((sum, holding) => sum + holding.costValue, 0);
   const yieldOnCost = equityCost > 0 ? annualizedDividendIncome / equityCost : 0;
-  const upcomingDividends = [...nonCashPortfolio]
-    .filter((holding) => holding.payoutDate)
-    .sort((left, right) => left.payoutDate.localeCompare(right.payoutDate))
-    .slice(0, 4);
+
+  const upcomingDividends = useMemo(() => {
+    type Up = { ticker: string; holding: typeof nonCashPortfolio[number]; date: string; dps: number };
+    const items: Up[] = [];
+    for (const holding of nonCashPortfolio) {
+      if (holding.payouts && holding.payouts.length > 0) {
+        for (const p of holding.payouts) {
+          if (!p.bookClosureDate) continue;
+          const ts = new Date(p.bookClosureDate).getTime();
+          if (!Number.isFinite(ts) || ts < todayTs) continue;
+          items.push({
+            ticker: holding.ticker,
+            holding,
+            date: p.bookClosureDate,
+            dps: p.dividendPerShare,
+          });
+        }
+      } else if (holding.payoutDate) {
+        const ts = new Date(holding.payoutDate).getTime();
+        if (Number.isFinite(ts) && ts >= todayTs) {
+          items.push({
+            ticker: holding.ticker,
+            holding,
+            date: holding.payoutDate,
+            dps: holding.dividendPerShare,
+          });
+        }
+      }
+    }
+    items.sort((a, b) => a.date.localeCompare(b.date));
+    return items.slice(0, 4);
+  }, [nonCashPortfolio, todayTs]);
+
+  const dividendCalendar = useMemo(() => {
+    const monthsPast = 6;
+    const monthsFuture = 6;
+    const now = new Date();
+    const currentMonthIndex = monthsPast;
+    const totalMonths = monthsPast + monthsFuture;
+
+    type DivStatus = "received" | "scheduled" | "projected";
+    const cells: Array<{
+      key: string;
+      label: string;
+      year: number;
+      month: number;
+      total: number;
+      isPast: boolean;
+      isCurrent: boolean;
+      entries: {
+        ticker: string;
+        amount: number;
+        date: string;
+        status: DivStatus;
+      }[];
+    }> = [];
+
+    for (let i = 0; i < totalMonths; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - monthsPast + i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      cells.push({
+        key: `${year}-${String(month + 1).padStart(2, "0")}`,
+        label: new Intl.DateTimeFormat("en-GB", {
+          month: "short",
+          year: "2-digit",
+        }).format(d),
+        year,
+        month,
+        total: 0,
+        isPast: i < currentMonthIndex,
+        isCurrent: i === currentMonthIndex,
+        entries: [],
+      });
+    }
+
+    const windowStartTs = new Date(cells[0].year, cells[0].month, 1).getTime();
+    const lastCell = cells[cells.length - 1];
+    const windowEndTs = new Date(lastCell.year, lastCell.month + 1, 0).getTime();
+
+    function placeEntry(
+      ticker: string,
+      amount: number,
+      date: Date,
+      status: DivStatus,
+    ) {
+      const target = cells.find(
+        (c) => c.year === date.getFullYear() && c.month === date.getMonth(),
+      );
+      if (!target) return;
+      target.total += amount;
+      target.entries.push({
+        ticker,
+        amount,
+        date: date.toISOString().slice(0, 10),
+        status,
+      });
+    }
+
+    const currentMonthTs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1,
+    ).getTime();
+
+    for (const holding of nonCashPortfolio) {
+      // Per-payout placement: use the scraper's payouts list when available.
+      // Each payout sits in its own book closure month, paid vs scheduled
+      // determined by whether the closure date has passed.
+      if (holding.payouts && holding.payouts.length > 0) {
+        for (const payout of holding.payouts) {
+          if (!payout.bookClosureDate || payout.dividendPerShare <= 0) continue;
+          const pd = new Date(payout.bookClosureDate);
+          if (!Number.isFinite(pd.getTime())) continue;
+          const amount = holding.shares * payout.dividendPerShare;
+
+          if (pd.getTime() >= windowStartTs && pd.getTime() <= windowEndTs) {
+            const status: DivStatus =
+              pd.getTime() < currentMonthTs ? "received" : "scheduled";
+            placeEntry(holding.ticker, amount, pd, status);
+          }
+
+          // Project next annual cycle 12 months forward if it lands in window.
+          const next = new Date(pd);
+          next.setFullYear(next.getFullYear() + 1);
+          if (
+            next.getTime() >= windowStartTs &&
+            next.getTime() <= windowEndTs
+          ) {
+            placeEntry(holding.ticker, amount, next, "projected");
+          }
+
+          // Also roll past dates forward to fill window when actual is outside.
+          if (pd.getTime() < windowStartTs) {
+            const projected = new Date(pd);
+            while (projected.getTime() < windowStartTs) {
+              projected.setFullYear(projected.getFullYear() + 1);
+            }
+            if (projected.getTime() <= windowEndTs) {
+              placeEntry(holding.ticker, amount, projected, "projected");
+            }
+          }
+        }
+        continue;
+      }
+
+      // Fallback (no per-payout data yet): place full TTM sum on legacy date.
+      if (!holding.payoutDate || holding.dividendPerShare <= 0) continue;
+      const pd = new Date(holding.payoutDate);
+      if (!Number.isFinite(pd.getTime())) continue;
+      const amount = holding.shares * holding.dividendPerShare;
+
+      if (pd.getTime() >= windowStartTs && pd.getTime() <= windowEndTs) {
+        const status: DivStatus =
+          pd.getTime() < currentMonthTs ? "received" : "scheduled";
+        placeEntry(holding.ticker, amount, pd, status);
+
+        const next = new Date(pd);
+        next.setFullYear(next.getFullYear() + 1);
+        if (next.getTime() <= windowEndTs) {
+          placeEntry(holding.ticker, amount, next, "projected");
+        }
+        continue;
+      }
+
+      const projected = new Date(pd);
+      while (projected.getTime() < windowStartTs) {
+        projected.setFullYear(projected.getFullYear() + 1);
+      }
+      if (projected.getTime() <= windowEndTs) {
+        placeEntry(holding.ticker, amount, projected, "projected");
+      }
+    }
+
+    const totalReceived = cells
+      .filter((c) => c.isPast)
+      .reduce((s, c) => s + c.total, 0);
+    const totalFuture = cells
+      .filter((c) => !c.isPast)
+      .reduce((s, c) => s + c.total, 0);
+    return { cells, totalReceived, totalFuture };
+  }, [nonCashPortfolio]);
 
   const sectorWeightMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -304,7 +527,29 @@ function App() {
     const latestValue = last?.valueEom ?? 0;
     const pnlValue = latestValue - totalInvested;
     const pnlPct = totalInvested > 0 ? (pnlValue / totalInvested) * 100 : 0;
-    return { totalInvested, latestValue, pnlValue, pnlPct, count: investmentRows.length };
+
+    let xirrPct = 0;
+    if (investmentRows.length >= 2 && latestValue > 0) {
+      const flows = investmentRows
+        .filter((row) => row.amount !== 0)
+        .map((row) => ({
+          date: new Date(row.date),
+          amount: -row.amount,
+        }));
+      const terminalDate = new Date(last!.date);
+      flows.push({ date: terminalDate, amount: latestValue });
+      const rate = xirr(flows, 0.1);
+      xirrPct = Number.isFinite(rate) ? rate * 100 : 0;
+    }
+
+    return {
+      totalInvested,
+      latestValue,
+      pnlValue,
+      pnlPct,
+      xirrPct,
+      count: investmentRows.length,
+    };
   }, [investmentRows]);
 
   const sortedHoldings = useMemo(() => {
@@ -394,19 +639,6 @@ function App() {
     .sort((left, right) => right.dayChangePct - left.dayChangePct)
     .slice(0, 6);
 
-  async function handleImport(file: File) {
-    const text = await file.text();
-    const imported = parseHoldingsCsv(text).map(normalizeHolding);
-
-    if (imported.length === 0) {
-      return;
-    }
-
-    setHoldings(imported);
-    setDraft(emptyDraft);
-    setDraftError("");
-  }
-
   function addManualHolding(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -486,8 +718,21 @@ function App() {
     setTargetError("");
   }
 
-  function removeTarget(id: string) {
-    setTargets((current) => current.filter((target) => target.id !== id));
+  async function removeTarget(id: string) {
+    const target = targets.find((t) => t.id === id);
+    if (!target) return;
+    const ok = await confirm({
+      title: "Remove target",
+      message: (
+        <>
+          Remove the <strong>{target.key}</strong> ({target.mode}) target of {formatPercent(target.targetWeight)}? This cannot be undone.
+        </>
+      ),
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setTargets((current) => current.filter((t) => t.id !== id));
   }
 
   function addInvestment(event: React.FormEvent<HTMLFormElement>) {
@@ -525,12 +770,40 @@ function App() {
     setInvestError("");
   }
 
-  function removeInvestment(id: string) {
-    setInvestments((current) => current.filter((entry) => entry.id !== id));
+  async function removeInvestment(id: string) {
+    const entry = investments.find((e) => e.id === id);
+    if (!entry) return;
+    const ok = await confirm({
+      title: "Remove investment entry",
+      message: (
+        <>
+          Remove the entry from <strong>{entry.date}</strong>
+          {entry.label ? ` (${entry.label})` : ""} for {formatCurrency(entry.amount)}? This cannot be undone.
+        </>
+      ),
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setInvestments((current) => current.filter((e) => e.id !== id));
   }
 
-  function removeHolding(id: string) {
-    setHoldings((current) => current.filter((holding) => holding.id !== id));
+  async function removeHolding(id: string) {
+    const holding = holdings.find((h) => h.id === id);
+    if (!holding) return;
+    const ok = await confirm({
+      title: "Remove holding",
+      message: (
+        <>
+          Remove <strong>{holding.ticker}</strong> ({holding.shares.toLocaleString()} shares,
+          market value {formatCurrency(holding.shares * holding.price)})? This cannot be undone.
+        </>
+      ),
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setHoldings((current) => current.filter((h) => h.id !== id));
   }
 
 
@@ -549,20 +822,26 @@ function App() {
       ]);
       const { holdings: updated } = applyMarketData(holdings, quotes, dividends);
       setHoldings(updated);
+      setLastFetchedAt(new Date().toISOString());
 
-      const snapshot = computePortfolio(buildHoldingsWithCash(updated, cashDraft));
-      setHistory((cur) => {
-        const next = [
-          ...cur,
-          {
-            date: new Date().toISOString(),
-            totalValue: snapshot.totalValue,
-            totalCost: snapshot.totalCost,
-            gainLoss: snapshot.totalGainLoss,
-          },
-        ];
-        return next.slice(-365);
-      });
+      const equityOnly = updated.filter((h) => !isCashHolding(h));
+      const snapshot = computePortfolio(equityOnly);
+      const { isWeekday, afterClose, pkDate } = psxCloseStatus();
+      if (isWeekday && afterClose) {
+        setHistory((cur) => {
+          if (cur.some((s) => pkDateOf(s.date) === pkDate)) return cur;
+          const next = [
+            ...cur,
+            {
+              date: new Date().toISOString(),
+              totalValue: snapshot.totalValue,
+              totalCost: snapshot.totalCost,
+              gainLoss: snapshot.totalGainLoss,
+            },
+          ];
+          return next.slice(-365);
+        });
+      }
     } catch {
       // ignore
     } finally {
@@ -572,12 +851,15 @@ function App() {
 
   function exportPortfolio() {
     const data = {
+      schema: "psx-portfolio-tools",
+      version: BACKUP_SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      lastFetchedAt,
       holdings,
       cash: cashDraft,
       targets,
       investments,
       history,
-      exportedAt: new Date().toISOString(),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -590,19 +872,102 @@ function App() {
 
   function importPortfolio(file: File) {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
+      let data: Record<string, unknown>;
       try {
         const text = String(reader.result);
-        const data = JSON.parse(text);
-        if (!confirm("Replace current data with imported file? This cannot be undone.")) return;
-        if (Array.isArray(data.holdings)) setHoldings(data.holdings);
-        if (data.cash && typeof data.cash === "object") setCashDraft(data.cash);
-        if (Array.isArray(data.targets)) setTargets(data.targets);
-        if (Array.isArray(data.investments)) setInvestments(data.investments);
-        if (Array.isArray(data.history)) setHistory(data.history);
+        data = JSON.parse(text);
+        if (!data || typeof data !== "object") throw new Error("Not a JSON object");
       } catch (err) {
-        alert(`Import failed: ${err instanceof Error ? err.message : "Invalid file"}`);
+        await confirm({
+          title: "Import failed",
+          message: `Could not parse file: ${err instanceof Error ? err.message : "Invalid file"}`,
+          confirmLabel: "Close",
+          cancelLabel: "Close",
+        });
+        return;
       }
+
+      const incomingHoldings = Array.isArray(data.holdings) ? (data.holdings as Holding[]) : null;
+      const incomingCash =
+        data.cash && typeof data.cash === "object" ? (data.cash as CashBuckets) : null;
+      const incomingTargets = Array.isArray(data.targets) ? (data.targets as TargetAllocation[]) : null;
+      const incomingInvestments = Array.isArray(data.investments)
+        ? (data.investments as InvestmentEntry[])
+        : null;
+      const incomingHistory = Array.isArray(data.history)
+        ? (data.history as PortfolioSnapshot[])
+        : null;
+      const incomingLastFetched =
+        typeof data.lastFetchedAt === "string" ? (data.lastFetchedAt as string) : null;
+
+      const anyData =
+        incomingHoldings ||
+        incomingCash ||
+        incomingTargets ||
+        incomingInvestments ||
+        incomingHistory;
+      if (!anyData) {
+        await confirm({
+          title: "Nothing to import",
+          message: "The file did not contain any recognizable portfolio data.",
+          confirmLabel: "Close",
+          cancelLabel: "Close",
+        });
+        return;
+      }
+
+      const exportedAt =
+        typeof data.exportedAt === "string" ? (data.exportedAt as string) : null;
+
+      const ok = await confirm({
+        title: "Restore from backup?",
+        message: (
+          <div className="confirm-import-summary">
+            <p>
+              This will <strong>replace all current data</strong>. Current
+              workspace cannot be recovered unless you exported it first.
+            </p>
+            <ul>
+              <li>
+                Holdings: <strong>{incomingHoldings?.length ?? 0}</strong>
+                {holdings.length > 0 ? ` (was ${holdings.length})` : ""}
+              </li>
+              <li>
+                Cash: <strong>{formatCurrency(incomingCash?.available ?? 0)}</strong>
+                {cashDraft.available > 0 ? ` (was ${formatCurrency(cashDraft.available)})` : ""}
+              </li>
+              <li>
+                Targets: <strong>{incomingTargets?.length ?? 0}</strong>
+                {targets.length > 0 ? ` (was ${targets.length})` : ""}
+              </li>
+              <li>
+                Investments: <strong>{incomingInvestments?.length ?? 0}</strong>
+                {investments.length > 0 ? ` (was ${investments.length})` : ""}
+              </li>
+              <li>
+                History snapshots: <strong>{incomingHistory?.length ?? 0}</strong>
+                {history.length > 0 ? ` (was ${history.length})` : ""}
+              </li>
+              {exportedAt ? (
+                <li>
+                  Backup created: <strong>{formatDateLong(exportedAt)}</strong>
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        ),
+        confirmLabel: "Replace all data",
+        tone: "danger",
+      });
+      if (!ok) return;
+
+      if (incomingHoldings) setHoldings(incomingHoldings.map(normalizeHolding));
+      if (incomingCash) setCashDraft({ available: Number(incomingCash.available ?? 0) });
+      if (incomingTargets) setTargets(incomingTargets);
+      if (incomingInvestments) setInvestments(incomingInvestments);
+      if (incomingHistory) setHistory(incomingHistory);
+      if (incomingLastFetched) setLastFetchedAt(incomingLastFetched);
     };
     reader.readAsText(file);
   }
@@ -615,21 +980,6 @@ function App() {
           <h1>Portfolio command center</h1>
         </div>
         <div className="hero-actions">
-          <label className="button" htmlFor="import-file">
-            Import CSV
-          </label>
-          <input
-            id="import-file"
-            className="sr-only"
-            type="file"
-            accept=".csv,text/csv"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                void handleImport(file);
-              }
-            }}
-          />
           <button
             type="button"
             className="button button-primary"
@@ -779,9 +1129,9 @@ function App() {
           detail={`${formatPercent(cashWeight)} of portfolio`}
         />
         <StatCard
-          label="Yield on cost"
+          label="Dividend yield on cost"
           value={formatPercent(yieldOnCost)}
-          detail="Annual dividend / equity cost"
+          detail={`TTM dividends ${formatCompactCurrency(annualizedDividendIncome)} / cost basis · excludes capital gains`}
         />
       </section>
 
@@ -791,9 +1141,34 @@ function App() {
             <p className="panel-kicker">History</p>
             <h2>Portfolio value over time</h2>
           </div>
-          <span className="panel-meta">{history.length} snapshot{history.length === 1 ? "" : "s"} · saved on price refresh</span>
+          <div className="panel-meta-row">
+            <span className="panel-meta">{history.length} snapshot{history.length === 1 ? "" : "s"} · 1/day after PSX close (15:30 PKT)</span>
+            <button
+              type="button"
+              className="button button-ghost"
+              onClick={async () => {
+                if (history.length === 0) return;
+                const ok = await confirm({
+                  title: "Clear history",
+                  message: (
+                    <>
+                      Wipe all <strong>{history.length}</strong> chart snapshot(s)? Daily history will rebuild after each PSX close. This cannot be undone.
+                    </>
+                  ),
+                  confirmLabel: "Clear history",
+                  tone: "danger",
+                });
+                if (!ok) return;
+                setHistory([]);
+              }}
+              disabled={history.length === 0}
+              title="Wipe portfolio chart history"
+            >
+              Clear history
+            </button>
+          </div>
         </div>
-        <PortfolioHistoryChart snapshots={history} />
+        <PortfolioHistoryChart snapshots={history} lastFetchedIso={lastFetchedAt} />
       </section>
 
       <section className="dashboard-grid dual">
@@ -803,35 +1178,66 @@ function App() {
               <p className="panel-kicker">Allocation</p>
               <h2>Portfolio weightage</h2>
             </div>
-            <span className="panel-meta">Interactive donut</span>
+            <span className="panel-meta">
+              {lastFetchedAt
+                ? `Updated ${formatRelativeTime(lastFetchedAt)}`
+                : "Interactive donut"}
+            </span>
           </div>
+          {fetching ? <div className="chart-skeleton" aria-hidden="true" /> : null}
           <PieChart holdings={portfolio.holdings} />
         </article>
 
         <article className="panel">
           <div className="panel-header">
             <div>
-              <p className="panel-kicker">Treemap</p>
-              <h2>Concentration map</h2>
+              <p className="panel-kicker">
+                {allocationView === "map" ? "Treemap" : "Ranked"}
+              </p>
+              <h2>Concentration {allocationView === "map" ? "map" : "leaderboard"}</h2>
             </div>
-            <div className="toggle-row">
-              <button
-                type="button"
-                className={`chip ${treemapMode === "sector" ? "active" : ""}`}
-                onClick={() => setTreemapMode("sector")}
-              >
-                Sector
-              </button>
-              <button
-                type="button"
-                className={`chip ${treemapMode === "ticker" ? "active" : ""}`}
-                onClick={() => setTreemapMode("ticker")}
-              >
-                Ticker
-              </button>
+            <div className="allocation-toggles">
+              <div className="toggle-row">
+                <button
+                  type="button"
+                  className={`chip ${treemapMode === "sector" ? "active" : ""}`}
+                  onClick={() => setTreemapMode("sector")}
+                >
+                  Sector
+                </button>
+                <button
+                  type="button"
+                  className={`chip ${treemapMode === "ticker" ? "active" : ""}`}
+                  onClick={() => setTreemapMode("ticker")}
+                >
+                  Ticker
+                </button>
+              </div>
+              <div className="toggle-row">
+                <button
+                  type="button"
+                  className={`chip ${allocationView === "map" ? "active" : ""}`}
+                  onClick={() => setAllocationView("map")}
+                  title="Squarified treemap"
+                >
+                  Map
+                </button>
+                <button
+                  type="button"
+                  className={`chip ${allocationView === "ranked" ? "active" : ""}`}
+                  onClick={() => setAllocationView("ranked")}
+                  title="Sorted horizontal bars"
+                >
+                  Ranked
+                </button>
+              </div>
             </div>
           </div>
-          <Treemap items={treemapItems} />
+          {allocationView === "map" ? (
+            <Treemap items={treemapItems} />
+          ) : (
+            <RankedAllocation items={treemapItems} />
+          )}
         </article>
       </section>
       </>)}
@@ -1106,20 +1512,33 @@ function App() {
           </div>
           <div className="suggestion-list">
             {upcomingDividends.length === 0 ? (
-              <p className="muted-note">Click Refresh prices to fetch dividend data.</p>
+              <p className="muted-note">No upcoming dividends. Refresh prices to fetch latest announcements.</p>
             ) : (
-              upcomingDividends.map((holding) => (
-                <div key={holding.id} className="suggestion-row">
-                  <strong>{holding.ticker}</strong>
-                  <span>DPS: {formatCurrency(holding.dividendPerShare)}</span>
+              upcomingDividends.map((up, i) => (
+                <div key={`${up.holding.id}-${up.date}-${i}`} className="suggestion-row">
+                  <strong>{up.ticker}</strong>
+                  <span>DPS: {formatCurrency(up.dps)}</span>
                   <small>
-                    Annual income {formatCurrency(holding.shares * holding.dividendPerShare)}
-                    {holding.payoutDate ? ` · Book closure ${holding.payoutDate}` : ""}
+                    Expected income {formatCurrency(up.holding.shares * up.dps)}
+                    {up.date ? ` · Book closure ${up.date}` : ""}
                   </small>
                 </div>
               ))
             )}
           </div>
+        </article>
+
+        <article className="panel insight-grid-span">
+          <div className="panel-header">
+            <div>
+              <p className="panel-kicker">Calendar</p>
+              <h2>Dividend payments</h2>
+            </div>
+            <span className="panel-meta">
+              Received {formatCompactCurrency(dividendCalendar.totalReceived)} past 6mo · Expected {formatCompactCurrency(dividendCalendar.totalFuture)} next 6mo
+            </span>
+          </div>
+          <DividendCalendarChart cells={dividendCalendar.cells} />
         </article>
       </section>
       )}
@@ -1134,19 +1553,45 @@ function App() {
             </div>
             <span className="panel-meta">Biggest impact positions</span>
           </div>
-          <div className="waterfall-list">
-            {waterfallRows.map((holding) => (
-              <div key={holding.id} className="waterfall-row">
-                <strong>{holding.ticker}</strong>
-                <div className="waterfall-track">
-                  <span
-                    className={`waterfall-bar ${holding.gainLoss >= 0 ? "positive" : "negative"}`}
-                    style={{ width: `${(Math.abs(holding.gainLoss) / maxWaterfall) * 100}%` }}
-                  />
-                </div>
-                <span>{formatCurrency(holding.gainLoss)}</span>
-              </div>
-            ))}
+          <div className="waterfall-list waterfall-list--centered">
+            {waterfallRows.length === 0 ? (
+              <p className="muted-note">No positions to evaluate yet.</p>
+            ) : (
+              waterfallRows.map((holding) => {
+                const pct = (Math.abs(holding.gainLoss) / maxWaterfall) * 50;
+                const isPos = holding.gainLoss >= 0;
+                const contribution =
+                  Math.abs(portfolio.totalGainLoss) > 0
+                    ? (holding.gainLoss / Math.abs(portfolio.totalGainLoss)) * 100
+                    : 0;
+                return (
+                  <div
+                    key={holding.id}
+                    className="waterfall-row"
+                    title={`${holding.ticker}: ${formatCurrency(holding.gainLoss)} · ${formatSignedPercent(contribution, 1)} of total P&L`}
+                  >
+                    <strong>{holding.ticker}</strong>
+                    <div className="waterfall-track waterfall-track--centered">
+                      <span className="waterfall-zero" />
+                      <span
+                        className={`waterfall-bar waterfall-bar--centered ${isPos ? "positive" : "negative"}`}
+                        style={
+                          isPos
+                            ? { left: "50%", width: `${pct}%` }
+                            : { right: "50%", width: `${pct}%` }
+                        }
+                      />
+                    </div>
+                    <span
+                      className={`waterfall-value ${isPos ? "positive" : "negative"}`}
+                    >
+                      {formatCurrency(holding.gainLoss)}
+                      <small>{formatSignedPercent(contribution, 1)}</small>
+                    </span>
+                  </div>
+                );
+              })
+            )}
           </div>
         </article>
 
@@ -1216,7 +1661,7 @@ function App() {
               {sortedHoldings.length === 0 ? (
                 <tr>
                   <td colSpan={14} className="empty-state">
-                    {holdingsSearch ? "No matches." : "Import a CSV or load sample data to populate the dashboard."}
+                    {holdingsSearch ? "No matches." : "No holdings yet. Use Quick add above or Import a saved backup."}
                   </td>
                 </tr>
               ) : (
@@ -1306,7 +1751,19 @@ function App() {
             <span className={`invest-stat-num ${investmentSummary.pnlPct >= 0 ? "positive" : "negative"}`}>
               {investmentSummary.pnlPct >= 0 ? "+" : ""}{investmentSummary.pnlPct.toFixed(2)}%
             </span>
-            <span className="invest-stat-label">Return</span>
+            <span className="invest-stat-label" title="Cumulative P&L over total deployed; ignores deposit timing.">
+              Cumulative %
+            </span>
+          </div>
+          <div className="invest-stat">
+            <span className={`invest-stat-num ${investmentSummary.xirrPct >= 0 ? "positive" : "negative"}`}>
+              {investmentSummary.count >= 2
+                ? `${investmentSummary.xirrPct >= 0 ? "+" : ""}${investmentSummary.xirrPct.toFixed(2)}%`
+                : "—"}
+            </span>
+            <span className="invest-stat-label" title="Money-weighted return (XIRR): annualized rate that discounts each cashflow to today's value. Industry standard for personal investing performance.">
+              Annualized (XIRR)
+            </span>
           </div>
         </section>
 
@@ -1444,6 +1901,7 @@ function App() {
         </section>
       </>
       )}
+      {confirmDialog}
     </main>
   );
 }
@@ -1559,6 +2017,12 @@ function loadInvestments(): InvestmentEntry[] {
   }
 }
 
+function loadLastFetchedAt(): string | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(lastFetchedStorageKey);
+  return raw && raw !== "null" ? raw : null;
+}
+
 function loadHistory(): PortfolioSnapshot[] {
   if (typeof window === "undefined") return [];
   const raw = window.localStorage.getItem(historyStorageKey);
@@ -1571,6 +2035,43 @@ function loadHistory(): PortfolioSnapshot[] {
   }
 }
 
+// PSX trading window ends 15:30 PKT Mon–Thu; Fri ladder ends 16:30. Use 15:30
+// weekday cutoff — daily snapshot only persists once market has closed.
+function pkParts(now: Date) {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Karachi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    weekday: "short",
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(now).map((p) => [p.type, p.value]),
+  ) as Record<string, string>;
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    weekday: parts.weekday,
+  };
+}
+
+function psxCloseStatus(now: Date = new Date()) {
+  const p = pkParts(now);
+  const isWeekday = !["Sat", "Sun"].includes(p.weekday);
+  const afterClose = p.hour > 15 || (p.hour === 15 && p.minute >= 30);
+  return { isWeekday, afterClose, pkDate: p.date };
+}
+
+function pkDateOf(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  return pkParts(d).date;
+}
+
 function normalizeHolding(holding: Holding): Holding {
   return {
     ...holding,
@@ -1578,6 +2079,13 @@ function normalizeHolding(holding: Holding): Holding {
     dividendPerShare: Number(holding.dividendPerShare ?? 0),
     payoutDate: holding.payoutDate ?? "",
   };
+}
+
+function isCashHolding(h: Holding): boolean {
+  if (h.id?.startsWith("cash-")) return true;
+  const ticker = (h.ticker ?? "").trim().toUpperCase();
+  const sector = (h.sector ?? "").trim().toLowerCase();
+  return ticker === "CASH" || sector === "cash";
 }
 
 function buildHoldingsWithCash(
@@ -1894,244 +2402,788 @@ function ActionRow({
   );
 }
 
+type HistorySeriesKey = "value" | "cost" | "twr";
+
+const HISTORY_SERIES_META: Record<
+  HistorySeriesKey,
+  { label: string; color: string; dashed?: boolean }
+> = {
+  value: { label: "Market value", color: "#e4ecff" },
+  cost: { label: "Cost basis", color: "#fbbf24", dashed: true },
+  twr: { label: "True return (TWR)", color: "#5eead4" },
+};
+
 function PortfolioHistoryChart({
   snapshots,
+  lastFetchedIso,
 }: {
   snapshots: PortfolioSnapshot[];
+  lastFetchedIso?: string | null;
 }) {
-  if (snapshots.length < 2) {
+  const [viewMode, setViewMode] = useState<"value" | "twr">("value");
+  const [hiddenSeries, setHiddenSeries] = useState<Set<HistorySeriesKey>>(
+    () => new Set(),
+  );
+
+  const twrIndex = useMemo(() => computeTwrIndex(snapshots), [snapshots]);
+
+  const W = 800;
+  const H = 300;
+  const padL = 78;
+  const padR = 24;
+  const padT = 24;
+  const padB = 48;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  const visibleKeys = useMemo<HistorySeriesKey[]>(() => {
+    const keys: HistorySeriesKey[] =
+      viewMode === "value" ? ["value", "cost"] : ["twr"];
+    return keys.filter((k) => !hiddenSeries.has(k));
+  }, [viewMode, hiddenSeries]);
+
+  const chart = useMemo(() => {
+    if (snapshots.length < 2) return null;
+
+    const values = snapshots.map((s) => s.totalValue);
+    const costs = snapshots.map((s) => s.totalCost);
+
+    const seriesByKey: Record<HistorySeriesKey, number[]> = {
+      value: values,
+      cost: costs,
+      twr: twrIndex.map((v) => v - 100),
+    };
+
+    const allVisible = visibleKeys.flatMap((k) => seriesByKey[k]);
+    const hi = Math.max(...allVisible);
+    const lo = Math.min(...allVisible, viewMode === "twr" ? 0 : hi);
+    const span = hi - lo || 1;
+    const yHi = hi + span * 0.08;
+    const yLo = viewMode === "twr" ? lo - span * 0.08 : Math.max(0, lo - span * 0.08);
+
+    const xOf = (i: number) =>
+      padL +
+      (snapshots.length === 1
+        ? innerW / 2
+        : (i / (snapshots.length - 1)) * innerW);
+    const yOf = (v: number) =>
+      padT + innerH - ((v - yLo) / (yHi - yLo)) * innerH;
+
+    const pointsByKey: Record<HistorySeriesKey, { x: number; y: number }[]> = {
+      value: values.map((v, i) => ({ x: xOf(i), y: yOf(v) })),
+      cost: costs.map((v, i) => ({ x: xOf(i), y: yOf(v) })),
+      twr: seriesByKey.twr.map((v, i) => ({ x: xOf(i), y: yOf(v) })),
+    };
+
+    const tickValues = niceTicks(yLo, yHi, 5);
+
+    return {
+      seriesByKey,
+      pointsByKey,
+      yLo,
+      yHi,
+      xOf,
+      yOf,
+      tickValues,
+    };
+  }, [snapshots, twrIndex, visibleKeys, viewMode, innerH, innerW]);
+
+  const { containerRef, svgRef, hover, handlers } = useChartHover({
+    pointCount: snapshots.length,
+    plotLeft: padL,
+    plotRight: padR,
+    viewBoxWidth: W,
+  });
+
+  const containerWidth =
+    containerRef.current?.clientWidth ?? 600;
+
+  function toggleSeries(key: HistorySeriesKey) {
+    setHiddenSeries((cur) => {
+      const next = new Set(cur);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  if (snapshots.length < 2 || !chart) {
     return (
       <div className="chart-empty">
-        Refresh prices at least twice to see portfolio value over time.
+        Refresh prices after PSX close (15:30 PKT) on 2+ weekdays to chart value over time.
       </div>
     );
   }
 
-  const W = 800;
-  const H = 280;
-  const padL = 75;
-  const padR = 20;
-  const padT = 20;
-  const padB = 44;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
-
-  const values = snapshots.map((s) => s.totalValue);
-  const minV = Math.min(...values, ...snapshots.map((s) => s.totalCost));
-  const maxV = Math.max(...values, ...snapshots.map((s) => s.totalCost));
-  const range = maxV - minV || 1;
-  const yMax = maxV + range * 0.1;
-  const yMin = Math.max(0, minV - range * 0.1);
-
-  const x = (i: number) =>
-    padL + (snapshots.length === 1 ? innerW / 2 : (i / (snapshots.length - 1)) * innerW);
-  const y = (v: number) => padT + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
-
-  const valuePoints = snapshots.map((s, i) => ({ x: x(i), y: y(s.totalValue) }));
-  const costPoints = snapshots.map((s, i) => ({ x: x(i), y: y(s.totalCost) }));
-
-  function smoothPath(pts: { x: number; y: number }[]) {
-    let d = `M ${pts[0].x} ${pts[0].y}`;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[i - 1] ?? pts[i];
-      const p1 = pts[i];
-      const p2 = pts[i + 1];
-      const p3 = pts[i + 2] ?? p2;
-      const cp1x = p1.x + (p2.x - p0.x) / 6;
-      const cp1y = p1.y + (p2.y - p0.y) / 6;
-      const cp2x = p2.x - (p3.x - p1.x) / 6;
-      const cp2y = p2.y - (p3.y - p1.y) / 6;
-      d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
-    }
-    return d;
-  }
-
-  const valuePath = smoothPath(valuePoints);
-  const costPath = smoothPath(costPoints);
-  const fillPath = `${valuePath} L ${valuePoints[valuePoints.length - 1].x} ${y(yMin)} L ${valuePoints[0].x} ${y(yMin)} Z`;
-
-  const gridSteps = 4;
-  const grid = Array.from({ length: gridSteps + 1 }, (_, i) => {
-    const v = yMin + ((yMax - yMin) * i) / gridSteps;
-    return { v, y: y(v) };
-  });
-
   const labelEvery = Math.max(1, Math.ceil(snapshots.length / 6));
+  const formatY = (v: number): string =>
+    viewMode === "twr" ? formatSignedPercent(v, 1) : formatCompactCurrency(v);
+
+  const hoveredIdx = hover?.index ?? null;
+  const lastSnap = snapshots[snapshots.length - 1];
+  const firstSnap = snapshots[0];
+  const valueChange = lastSnap.totalValue - firstSnap.totalValue;
+  const valueChangePct =
+    firstSnap.totalValue > 0
+      ? (valueChange / firstSnap.totalValue) * 100
+      : 0;
+  const twrCumulative = twrIndex[twrIndex.length - 1] - 100;
 
   return (
-    <div className="invest-chart">
-      <div className="invest-chart-legend">
-        <span className="invest-chart-legend-item">
-          <span className="invest-chart-swatch invest-chart-swatch--total" />
-          Value
-        </span>
-        <span className="invest-chart-legend-item">
-          <span className="invest-chart-swatch invest-chart-swatch--cost" />
-          Cost
-        </span>
+    <div
+      ref={containerRef}
+      className="line-chart"
+      data-view-mode={viewMode}
+    >
+      <div className="line-chart-header">
+        <div className="line-chart-summary">
+          {viewMode === "value" ? (
+            <>
+              <strong>{formatCurrency(lastSnap.totalValue)}</strong>
+              <span
+                className={valueChange >= 0 ? "positive" : "negative"}
+              >
+                {valueChange >= 0 ? "+" : ""}
+                {formatCurrency(valueChange)} ({formatSignedPercent(valueChangePct, 2)})
+              </span>
+            </>
+          ) : (
+            <>
+              <strong className={twrCumulative >= 0 ? "positive" : "negative"}>
+                {formatSignedPercent(twrCumulative, 2)}
+              </strong>
+              <span className="muted">deposit-neutral return over {snapshots.length} snapshots</span>
+            </>
+          )}
+        </div>
+        <div className="line-chart-controls">
+          {lastFetchedIso ? (
+            <span
+              className="line-chart-stale"
+              title={formatDateLong(lastFetchedIso)}
+            >
+              Updated {formatRelativeTime(lastFetchedIso)}
+            </span>
+          ) : null}
+          <div className="chip-group">
+            <button
+              type="button"
+              className={`chip ${viewMode === "value" ? "chip--active" : ""}`}
+              onClick={() => setViewMode("value")}
+            >
+              Value
+            </button>
+            <button
+              type="button"
+              className={`chip ${viewMode === "twr" ? "chip--active" : ""}`}
+              onClick={() => setViewMode("twr")}
+            >
+              True return %
+            </button>
+          </div>
+        </div>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="invest-chart-svg" preserveAspectRatio="none">
-        {grid.map((g, i) => (
-          <g key={i}>
-            <line className="invest-chart-grid" x1={padL} x2={W - padR} y1={g.y} y2={g.y} />
-            <text className="invest-chart-axis" x={padL - 8} y={g.y + 4} textAnchor="end">
-              Rs {Math.round(g.v).toLocaleString()}
-            </text>
-          </g>
-        ))}
 
-        <path className="invest-chart-step-fill" d={fillPath} />
-        <path className="invest-chart-cost" d={costPath} />
-        <path className="invest-chart-line" d={valuePath} />
-
-        {valuePoints.map((p, i) => (
-          <circle key={i} className="invest-chart-dot" cx={p.x} cy={p.y} r={3}>
-            <title>
-              {snapshots[i].date.slice(0, 10)} · {snapshots[i].totalValue.toLocaleString()}
-            </title>
-          </circle>
-        ))}
-
-        {snapshots.map((s, i) => {
-          if (i % labelEvery !== 0 && i !== snapshots.length - 1) return null;
+      <div className="line-chart-legend">
+        {(viewMode === "value"
+          ? (["value", "cost"] as const)
+          : (["twr"] as const)
+        ).map((key) => {
+          const meta = HISTORY_SERIES_META[key];
+          const hidden = hiddenSeries.has(key);
           return (
-            <text key={i} className="invest-chart-axis" x={x(i)} y={H - padB + 18} textAnchor="middle">
-              {s.date.slice(5, 10)}
-            </text>
+            <button
+              key={key}
+              type="button"
+              className={`line-chart-legend-item ${hidden ? "line-chart-legend-item--off" : ""}`}
+              onClick={() => toggleSeries(key)}
+              aria-pressed={!hidden}
+            >
+              <span
+                className="line-chart-legend-swatch"
+                style={{
+                  background: meta.dashed ? "transparent" : meta.color,
+                  borderColor: meta.color,
+                  borderStyle: meta.dashed ? "dashed" : "solid",
+                }}
+              />
+              {meta.label}
+            </button>
           );
         })}
-      </svg>
+      </div>
+
+      <div className="line-chart-svg-wrap">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="line-chart-svg"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Portfolio history line chart"
+          {...handlers}
+        >
+          {chart.tickValues.map((v, i) => (
+            <g key={`y-${i}`}>
+              <line
+                className="line-chart-grid"
+                x1={padL}
+                x2={W - padR}
+                y1={chart.yOf(v)}
+                y2={chart.yOf(v)}
+              />
+              <text
+                className="line-chart-axis"
+                x={padL - 10}
+                y={chart.yOf(v) + 4}
+                textAnchor="end"
+              >
+                {formatY(v)}
+              </text>
+            </g>
+          ))}
+
+          {viewMode === "twr" ? (
+            <line
+              className="line-chart-zero"
+              x1={padL}
+              x2={W - padR}
+              y1={chart.yOf(0)}
+              y2={chart.yOf(0)}
+            />
+          ) : null}
+
+          {visibleKeys.includes("value") && viewMode === "value" ? (
+            <path
+              className="line-chart-area"
+              d={`${buildCatmullRomPath(chart.pointsByKey.value)} L ${chart.pointsByKey.value[chart.pointsByKey.value.length - 1].x} ${chart.yOf(chart.yLo)} L ${chart.pointsByKey.value[0].x} ${chart.yOf(chart.yLo)} Z`}
+            />
+          ) : null}
+
+          {visibleKeys.map((key) => {
+            const meta = HISTORY_SERIES_META[key];
+            const pts = chart.pointsByKey[key];
+            return (
+              <path
+                key={`line-${key}`}
+                className="line-chart-line"
+                d={buildCatmullRomPath(pts)}
+                stroke={meta.color}
+                strokeDasharray={meta.dashed ? "4 4" : undefined}
+                strokeWidth={key === "value" || key === "twr" ? 2.4 : 1.6}
+              />
+            );
+          })}
+
+          {snapshots.map((s, i) => {
+            if (i % labelEvery !== 0 && i !== snapshots.length - 1) return null;
+            return (
+              <text
+                key={`xl-${i}`}
+                className="line-chart-axis"
+                x={chart.xOf(i)}
+                y={H - padB + 22}
+                textAnchor="middle"
+              >
+                {formatDateShort(s.date)}
+              </text>
+            );
+          })}
+
+          {hoveredIdx !== null ? (
+            <g pointerEvents="none">
+              <line
+                className="line-chart-crosshair"
+                x1={chart.xOf(hoveredIdx)}
+                x2={chart.xOf(hoveredIdx)}
+                y1={padT}
+                y2={H - padB}
+              />
+              {visibleKeys.map((key) => {
+                const meta = HISTORY_SERIES_META[key];
+                const p = chart.pointsByKey[key][hoveredIdx];
+                return (
+                  <circle
+                    key={`hd-${key}`}
+                    className="line-chart-hover-dot"
+                    cx={p.x}
+                    cy={p.y}
+                    r={5}
+                    fill={meta.color}
+                  />
+                );
+              })}
+            </g>
+          ) : null}
+        </svg>
+
+        {hoveredIdx !== null && hover ? (
+          <ChartTooltip
+            x={hover.containerX}
+            y={hover.containerY}
+            containerWidth={containerWidth}
+            title={formatDateLong(snapshots[hoveredIdx].date)}
+            rows={(viewMode === "value"
+              ? ([
+                  {
+                    label: "Market value",
+                    value: formatCurrency(snapshots[hoveredIdx].totalValue),
+                    color: HISTORY_SERIES_META.value.color,
+                  },
+                  {
+                    label: "Cost basis",
+                    value: formatCurrency(snapshots[hoveredIdx].totalCost),
+                    color: HISTORY_SERIES_META.cost.color,
+                  },
+                  {
+                    label: "Unrealized P&L",
+                    value: formatCurrency(snapshots[hoveredIdx].gainLoss),
+                  },
+                ] as const)
+              : ([
+                  {
+                    label: "TWR cumulative",
+                    value: formatSignedPercent(
+                      chart.seriesByKey.twr[hoveredIdx],
+                      2,
+                    ),
+                    color: HISTORY_SERIES_META.twr.color,
+                  },
+                  {
+                    label: "Market value",
+                    value: formatCurrency(snapshots[hoveredIdx].totalValue),
+                  },
+                  {
+                    label: "Cost basis",
+                    value: formatCurrency(snapshots[hoveredIdx].totalCost),
+                  },
+                ] as const)
+            ).map((r) => ({ ...r }))}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
 
-function InvestmentChart({
-  rows,
-}: {
-  rows: { id: string; date: string; total: number; valueEom: number }[];
-}) {
-  if (rows.length < 2) {
+type InvestmentChartRow = {
+  id: string;
+  date: string;
+  label: string;
+  amount: number;
+  total: number;
+  valueEom: number;
+  pnlValue: number;
+  pnlPct: number;
+};
+
+type InvestSeriesKey = "total" | "value";
+const INVEST_SERIES_META: Record<
+  InvestSeriesKey,
+  { label: string; color: string }
+> = {
+  total: { label: "Capital deployed", color: "#5ea5ea" },
+  value: { label: "Portfolio value", color: "#e4ecff" },
+};
+
+function InvestmentChart({ rows }: { rows: InvestmentChartRow[] }) {
+  const [hiddenSeries, setHiddenSeries] = useState<Set<InvestSeriesKey>>(
+    () => new Set(),
+  );
+
+  const W = 800;
+  const H = 320;
+  const padL = 78;
+  const padR = 24;
+  const padT = 24;
+  const padB = 52;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  const visibleKeys = useMemo<InvestSeriesKey[]>(
+    () => (["total", "value"] as const).filter((k) => !hiddenSeries.has(k)),
+    [hiddenSeries],
+  );
+
+  const chart = useMemo(() => {
+    if (rows.length < 2) return null;
+
+    const totals = rows.map((r) => r.total);
+    const values = rows.map((r) => r.valueEom);
+
+    const seriesByKey: Record<InvestSeriesKey, number[]> = {
+      total: totals,
+      value: values,
+    };
+
+    const visibleSeries = visibleKeys.flatMap((k) => seriesByKey[k]);
+    const hi = Math.max(...visibleSeries, 0);
+    const lo = Math.min(...visibleSeries, 0);
+    const span = hi - lo || 1;
+    const yHi = hi + span * 0.08;
+    const yLo = Math.max(0, lo - span * 0.04);
+
+    const xOf = (i: number) =>
+      padL +
+      (rows.length === 1
+        ? innerW / 2
+        : (i / (rows.length - 1)) * innerW);
+    const yOf = (v: number) =>
+      padT + innerH - ((v - yLo) / (yHi - yLo)) * innerH;
+
+    let stepPath = `M ${xOf(0)} ${yOf(totals[0])}`;
+    for (let i = 1; i < rows.length; i++) {
+      stepPath += ` H ${xOf(i)} V ${yOf(totals[i])}`;
+    }
+    const stepArea = `${stepPath} L ${xOf(rows.length - 1)} ${yOf(yLo)} L ${xOf(0)} ${yOf(yLo)} Z`;
+
+    const valuePoints = values.map((v, i) => ({ x: xOf(i), y: yOf(v) }));
+    const totalPoints = totals.map((v, i) => ({ x: xOf(i), y: yOf(v) }));
+
+    const tickValues = niceTicks(yLo, yHi, 5);
+
+    return {
+      seriesByKey,
+      valuePath: buildCatmullRomPath(valuePoints),
+      stepPath,
+      stepArea,
+      valuePoints,
+      totalPoints,
+      tickValues,
+      yOf,
+      xOf,
+    };
+  }, [rows, visibleKeys, innerH, innerW]);
+
+  const { containerRef, svgRef, hover, handlers } = useChartHover({
+    pointCount: rows.length,
+    plotLeft: padL,
+    plotRight: padR,
+    viewBoxWidth: W,
+  });
+
+  function toggleSeries(key: InvestSeriesKey) {
+    setHiddenSeries((cur) => {
+      const next = new Set(cur);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  if (rows.length < 2 || !chart) {
     return (
       <div className="chart-empty">
-        Add at least 2 entries to see chart.
+        Add at least 2 investment entries to see chart.
       </div>
     );
   }
 
-  const W = 800;
-  const H = 320;
-  const padL = 70;
-  const padR = 20;
-  const padT = 20;
-  const padB = 50;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
-
-  const maxY = Math.max(...rows.map((r) => Math.max(r.total, r.valueEom))) * 1.1 || 1;
-  const minY = 0;
-
-  const x = (i: number) =>
-    padL + (rows.length === 1 ? innerW / 2 : (i / (rows.length - 1)) * innerW);
-  const y = (v: number) => padT + innerH - ((v - minY) / (maxY - minY)) * innerH;
-
-  // Step area path for Total
-  let stepPath = `M ${x(0)} ${y(rows[0].total)}`;
-  for (let i = 1; i < rows.length; i++) {
-    stepPath += ` H ${x(i)} V ${y(rows[i].total)}`;
-  }
-  const stepArea = `${stepPath} L ${x(rows.length - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`;
-
-  // Smooth Catmull-Rom path through Value EOM points
-  const points = rows.map((r, i) => ({ x: x(i), y: y(r.valueEom) }));
-  let smooth = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i - 1] ?? points[i];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[i + 2] ?? p2;
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    smooth += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
-  }
-
-  // Y gridlines: 5 evenly spaced
-  const gridSteps = 5;
-  const grid = Array.from({ length: gridSteps + 1 }, (_, i) => {
-    const v = (maxY * i) / gridSteps;
-    return { v, y: y(v) };
-  });
-
-  // X labels: show first, last, and ~3 middle ticks
   const labelEvery = Math.max(1, Math.ceil(rows.length / 6));
+  const hoveredIdx = hover?.index ?? null;
+  const containerWidth = containerRef.current?.clientWidth ?? 600;
 
   return (
-    <div className="invest-chart">
-      <div className="invest-chart-legend">
-        <span className="invest-chart-legend-item">
-          <span className="invest-chart-swatch invest-chart-swatch--total" />
-          Total
-        </span>
-        <span className="invest-chart-legend-item">
-          <span className="invest-chart-swatch invest-chart-swatch--value" />
-          Value EOM
-        </span>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="invest-chart-svg" preserveAspectRatio="none">
-        {grid.map((g, i) => (
-          <g key={i}>
-            <line
-              className="invest-chart-grid"
-              x1={padL}
-              x2={W - padR}
-              y1={g.y}
-              y2={g.y}
-            />
-            <text
-              className="invest-chart-axis"
-              x={padL - 8}
-              y={g.y + 4}
-              textAnchor="end"
-            >
-              Rs {Math.round(g.v).toLocaleString()}
-            </text>
-          </g>
-        ))}
-
-        <path className="invest-chart-step-fill" d={stepArea} />
-        <path className="invest-chart-step" d={stepPath} />
-        <path className="invest-chart-line" d={smooth} />
-
-        {points.map((p, i) => (
-          <circle
-            key={i}
-            className="invest-chart-dot"
-            cx={p.x}
-            cy={p.y}
-            r={4}
-          >
-            <title>
-              {rows[i].date} · Total {rows[i].total.toLocaleString()} · Value {rows[i].valueEom.toLocaleString()}
-            </title>
-          </circle>
-        ))}
-
-        {rows.map((r, i) => {
-          if (i % labelEvery !== 0 && i !== rows.length - 1) return null;
+    <div ref={containerRef} className="line-chart">
+      <div className="line-chart-legend">
+        {(["total", "value"] as const).map((key) => {
+          const meta = INVEST_SERIES_META[key];
+          const hidden = hiddenSeries.has(key);
           return (
-            <text
-              key={r.id}
-              className="invest-chart-axis"
-              x={x(i)}
-              y={H - padB + 18}
-              textAnchor="middle"
+            <button
+              key={key}
+              type="button"
+              className={`line-chart-legend-item ${hidden ? "line-chart-legend-item--off" : ""}`}
+              onClick={() => toggleSeries(key)}
+              aria-pressed={!hidden}
             >
-              {r.date}
-            </text>
+              <span
+                className="line-chart-legend-swatch"
+                style={{ background: meta.color, borderColor: meta.color }}
+              />
+              {meta.label}
+            </button>
           );
         })}
-      </svg>
+      </div>
+
+      <div className="line-chart-svg-wrap">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="line-chart-svg"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Investment growth chart"
+          {...handlers}
+        >
+          {chart.tickValues.map((v, i) => (
+            <g key={`y-${i}`}>
+              <line
+                className="line-chart-grid"
+                x1={padL}
+                x2={W - padR}
+                y1={chart.yOf(v)}
+                y2={chart.yOf(v)}
+              />
+              <text
+                className="line-chart-axis"
+                x={padL - 10}
+                y={chart.yOf(v) + 4}
+                textAnchor="end"
+              >
+                {formatCompactCurrency(v)}
+              </text>
+            </g>
+          ))}
+
+          {visibleKeys.includes("total") ? (
+            <>
+              <path className="line-chart-step-fill" d={chart.stepArea} />
+              <path
+                className="line-chart-step"
+                d={chart.stepPath}
+                stroke={INVEST_SERIES_META.total.color}
+              />
+            </>
+          ) : null}
+
+          {visibleKeys.includes("value") ? (
+            <path
+              className="line-chart-line"
+              d={chart.valuePath}
+              stroke={INVEST_SERIES_META.value.color}
+              strokeWidth={2.4}
+            />
+          ) : null}
+
+          {rows.map((r, i) => {
+            if (i % labelEvery !== 0 && i !== rows.length - 1) return null;
+            return (
+              <text
+                key={`xl-${r.id}`}
+                className="line-chart-axis"
+                x={chart.xOf(i)}
+                y={H - padB + 22}
+                textAnchor="middle"
+              >
+                {formatDateShort(r.date)}
+              </text>
+            );
+          })}
+
+          {hoveredIdx !== null ? (
+            <g pointerEvents="none">
+              <line
+                className="line-chart-crosshair"
+                x1={chart.xOf(hoveredIdx)}
+                x2={chart.xOf(hoveredIdx)}
+                y1={padT}
+                y2={H - padB}
+              />
+              {visibleKeys.includes("total") ? (
+                <circle
+                  className="line-chart-hover-dot"
+                  cx={chart.totalPoints[hoveredIdx].x}
+                  cy={chart.totalPoints[hoveredIdx].y}
+                  r={5}
+                  fill={INVEST_SERIES_META.total.color}
+                />
+              ) : null}
+              {visibleKeys.includes("value") ? (
+                <circle
+                  className="line-chart-hover-dot"
+                  cx={chart.valuePoints[hoveredIdx].x}
+                  cy={chart.valuePoints[hoveredIdx].y}
+                  r={5}
+                  fill={INVEST_SERIES_META.value.color}
+                />
+              ) : null}
+            </g>
+          ) : null}
+        </svg>
+
+        {hoveredIdx !== null && hover ? (
+          <ChartTooltip
+            x={hover.containerX}
+            y={hover.containerY}
+            containerWidth={containerWidth}
+            title={`${formatDateLong(rows[hoveredIdx].date)} · ${rows[hoveredIdx].label}`}
+            rows={[
+              {
+                label: "Capital deployed",
+                value: formatCurrency(rows[hoveredIdx].total),
+                color: INVEST_SERIES_META.total.color,
+              },
+              {
+                label: "Portfolio value",
+                value: formatCurrency(rows[hoveredIdx].valueEom),
+                color: INVEST_SERIES_META.value.color,
+              },
+              {
+                label: "P&L",
+                value: `${rows[hoveredIdx].pnlValue >= 0 ? "+" : ""}${formatCurrency(rows[hoveredIdx].pnlValue)} (${formatSignedPercent(rows[hoveredIdx].pnlPct, 2)})`,
+              },
+              {
+                label: "Entry amount",
+                value:
+                  rows[hoveredIdx].amount === 0
+                    ? "—"
+                    : `${rows[hoveredIdx].amount > 0 ? "+" : ""}${formatCurrency(rows[hoveredIdx].amount)}`,
+              },
+            ]}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function RankedAllocation({
+  items,
+}: {
+  items: { key: string; label: string; value: number; weight: number }[];
+}) {
+  if (items.length === 0) {
+    return <div className="chart-empty">No data</div>;
+  }
+  const sorted = [...items].sort((a, b) => b.weight - a.weight);
+  const top = sorted[0]?.weight || 1;
+  return (
+    <div className="ranked-allocation">
+      {sorted.map((item, i) => {
+        const widthPct = (item.weight / top) * 100;
+        return (
+          <div className="ranked-row" key={item.key}>
+            <span className="ranked-rank">{i + 1}</span>
+            <strong className="ranked-label">{item.label}</strong>
+            <div className="ranked-track">
+              <span
+                className="ranked-fill"
+                style={{
+                  width: `${widthPct}%`,
+                  background: getSliceColor(i),
+                }}
+              />
+            </div>
+            <span className="ranked-weight">{formatPercent(item.weight)}</span>
+            <span className="ranked-value">{formatCompactCurrency(item.value)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+type DividendStatus = "received" | "scheduled" | "projected";
+
+type DividendCell = {
+  key: string;
+  label: string;
+  year: number;
+  month: number;
+  total: number;
+  isPast: boolean;
+  isCurrent: boolean;
+  entries: {
+    ticker: string;
+    amount: number;
+    date: string;
+    status: DividendStatus;
+  }[];
+};
+
+const DIVIDEND_STATUS_LABEL: Record<DividendStatus, string> = {
+  received: "received",
+  scheduled: "scheduled",
+  projected: "projected (annual cycle)",
+};
+
+function DividendCalendarChart({ cells }: { cells: DividendCell[] }) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const max = cells.reduce((m, c) => Math.max(m, c.total), 0);
+
+  if (max === 0) {
+    return (
+      <div className="chart-empty">
+        No dividend payout dates yet. Refresh prices to populate the calendar.
+      </div>
+    );
+  }
+
+  const containerWidth = containerRef.current?.clientWidth ?? 600;
+  const hoveredCell = hovered !== null ? cells[hovered] : null;
+
+  function dominantStatus(cell: DividendCell): DividendStatus {
+    if (cell.entries.length === 0) {
+      return cell.isPast ? "received" : "scheduled";
+    }
+    // Pick status of the largest entry as the bar's primary color.
+    let top = cell.entries[0];
+    for (const e of cell.entries) if (e.amount > top.amount) top = e;
+    return top.status;
+  }
+
+  return (
+    <div ref={containerRef} className="dividend-calendar">
+      <div className="dividend-calendar-legend">
+        <span className="dividend-legend-item">
+          <span className="dividend-swatch dividend-swatch--received" />
+          Received
+        </span>
+        <span className="dividend-legend-item">
+          <span className="dividend-swatch dividend-swatch--scheduled" />
+          Scheduled
+        </span>
+        <span className="dividend-legend-item">
+          <span className="dividend-swatch dividend-swatch--projected" />
+          Projected (annual cycle)
+        </span>
+      </div>
+
+      <div className="dividend-calendar-bars">
+        {cells.map((cell, i) => {
+          const heightPct = max > 0 ? (cell.total / max) * 100 : 0;
+          const status = dominantStatus(cell);
+          return (
+            <button
+              key={cell.key}
+              type="button"
+              className={`dividend-bar dividend-bar--${status} ${cell.total === 0 ? "dividend-bar--empty" : ""} ${cell.isCurrent ? "dividend-bar--current" : ""} ${hovered === i ? "dividend-bar--active" : ""}`}
+              onPointerEnter={() => setHovered(i)}
+              onPointerLeave={() => setHovered(null)}
+              onFocus={() => setHovered(i)}
+              onBlur={() => setHovered(null)}
+              aria-label={`${cell.label}: ${formatCurrency(cell.total)} ${status}`}
+            >
+              <span className="dividend-bar-track">
+                <span
+                  className="dividend-bar-fill"
+                  style={{ height: `${heightPct}%` }}
+                />
+              </span>
+              <span className="dividend-bar-amount">
+                {cell.total === 0 ? "—" : formatCompactCurrency(cell.total)}
+              </span>
+              <span className="dividend-bar-label">{cell.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {hoveredCell && hoveredCell.entries.length > 0 ? (
+        <ChartTooltip
+          x={containerWidth / 2}
+          y={20}
+          containerWidth={containerWidth}
+          title={`${hoveredCell.label} · ${formatCurrency(hoveredCell.total)}`}
+          rows={hoveredCell.entries.map((entry) => ({
+            label: `${entry.ticker} · ${formatDateShort(entry.date)} · ${DIVIDEND_STATUS_LABEL[entry.status]}`,
+            value: formatCurrency(entry.amount),
+          }))}
+        />
+      ) : null}
     </div>
   );
 }

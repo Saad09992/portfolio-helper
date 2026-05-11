@@ -4,6 +4,7 @@ export type PortfolioFile = {
   targets?: unknown;
   investments?: unknown;
   history?: unknown;
+  lastFetchedAt?: unknown;
   savedAt?: string;
 };
 

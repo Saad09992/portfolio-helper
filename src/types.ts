@@ -1,3 +1,9 @@
+export type Payout = {
+  announcementDate: string;
+  bookClosureDate: string;
+  dividendPerShare: number;
+};
+
 export type Holding = {
   id: string;
   ticker: string;
@@ -10,6 +16,7 @@ export type Holding = {
   dayChangePct: number;
   dividendPerShare: number;
   payoutDate: string;
+  payouts?: Payout[];
 };
 
 export type DerivedHolding = Holding & {

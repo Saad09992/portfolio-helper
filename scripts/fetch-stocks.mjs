@@ -100,6 +100,17 @@ async function main() {
     insertSector.run(code, name);
   }
 
+  // Auto-add any sector codes seen in scraped data but missing from hardcoded map
+  // (PSX occasionally adds/renames; FK would otherwise fail).
+  const seenSectors = new Set(stocks.map((s) => s.sector));
+  const unknownSectors = [...seenSectors].filter((c) => !SECTORS[c]);
+  for (const code of unknownSectors) {
+    insertSector.run(code, `Sector ${code}`);
+  }
+  if (unknownSectors.length > 0) {
+    console.log(`Added ${unknownSectors.length} unknown sectors: ${unknownSectors.join(", ")}`);
+  }
+
   const insertStock = db.prepare(
     "INSERT OR REPLACE INTO stocks (ticker, name, sector) VALUES (?, ?, ?)",
   );

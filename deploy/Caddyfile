@@ -11,15 +11,14 @@
 	# global options
 	admin off
 	auto_https off
+
+	servers {
+		trusted_proxies static private_ranges
+	}
 }
 
 :80 {
 	encode zstd gzip
-
-	# trust ngrok's forwarded headers so apps see real client IP/proto
-	servers {
-		trusted_proxies static private_ranges
-	}
 
 	# psx (built with BASE_PATH=/psx/)
 	handle_path /psx/* {

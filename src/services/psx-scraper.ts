@@ -2,14 +2,8 @@ import type { Holding, Payout } from "../types";
 
 export type MarketQuote = {
   ticker: string;
-  ldcp: number;
-  open: number;
-  high: number;
-  low: number;
   current: number;
-  change: number;
   changePct: number;
-  volume: number;
 };
 
 type DividendInfo = {
@@ -19,8 +13,12 @@ type DividendInfo = {
   payouts?: Payout[];
 };
 
-export async function fetchMarketData(): Promise<MarketQuote[]> {
-  const response = await fetch("/api/psx/market-data");
+export async function fetchMarketData(tickers: string[]): Promise<MarketQuote[]> {
+  if (tickers.length === 0) return [];
+
+  const response = await fetch(
+    `/api/psx/market-data?tickers=${tickers.join(",")}`,
+  );
 
   if (!response.ok) {
     throw new Error(`API returned ${response.status}`);

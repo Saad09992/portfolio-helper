@@ -1,9 +1,13 @@
 import Database from "better-sqlite3";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { mkdirSync } from "fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = resolve(__dirname, "../data/psx-stocks.db");
+const DATA_DIR = process.env.DATA_DIR
+  ? resolve(process.env.DATA_DIR)
+  : resolve(__dirname, "../data");
+const DB_PATH = resolve(DATA_DIR, "psx-stocks.db");
 const PSX_URL = "https://dps.psx.com.pk/market-watch";
 
 const SECTORS = {
@@ -67,6 +71,7 @@ async function main() {
   const stocks = parseStocks(html);
   console.log(`Parsed ${stocks.length} stocks`);
 
+  mkdirSync(DATA_DIR, { recursive: true });
   const db = new Database(DB_PATH);
 
   db.exec(`

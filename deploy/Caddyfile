@@ -1,0 +1,35 @@
+# VPS reverse proxy. Runs on the host (or its own container).
+# Routes many apps behind ONE ngrok tunnel.
+#
+# ngrok tcp/http  -->  Caddy :80  -->  app containers
+#
+# Two routing options below. Pick one.
+
+# ---------- Option A: path-based (works with free ngrok, one domain) ----------
+# Visit https://<ngrok>.ngrok.app/psx
+:80 {
+  encode zstd gzip
+
+  handle_path /psx/* {
+    reverse_proxy psx:3000
+  }
+
+  # add more apps:
+  # handle_path /blog/* { reverse_proxy blog:4000 }
+  # handle_path /api2/*  { reverse_proxy api2:5000 }
+
+  handle {
+    respond "OK" 200
+  }
+}
+
+# ---------- Option B: host-based (needs ngrok paid OR multiple tunnels) ----------
+# psx.example.com {
+#   encode zstd gzip
+#   reverse_proxy psx:3000
+# }
+#
+# blog.example.com {
+#   encode zstd gzip
+#   reverse_proxy blog:4000
+# }

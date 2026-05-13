@@ -1,0 +1,29 @@
+services:
+  psx:
+    build:
+      context: .
+      args:
+        # set to /psx/ if mounting under Caddy's handle_path /psx/*
+        BASE_PATH: /
+    image: psx-portfolio:latest
+    container_name: psx
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      DATA_DIR: /data
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - psx-data:/data
+    networks:
+      - web
+
+volumes:
+  psx-data:
+
+networks:
+  web:
+    name: web
+    external: false

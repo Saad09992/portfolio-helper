@@ -85,7 +85,6 @@ type HoldingsSortKey =
   | "costBasis"
   | "price"
   | "dayChangePct"
-  | "divYield"
   | "marketValue"
   | "weight"
   | "pnlToday"
@@ -237,29 +236,14 @@ function App() {
     (holding) => holding.sector.toLowerCase() !== "cash",
   );
 
-  const topHolding = portfolio.holdings[0];
+  const topHolding = [...nonCashPortfolio].sort((a, b) => b.weight - a.weight)[0];
   const cashWeight = portfolio.totalValue > 0 ? cashDraft.available / portfolio.totalValue : 0;
   const cashMessage = getCashDeploymentIdea(cashWeight);
 
   const todayTs = Date.now();
 
-  // TTM PAID dividends only — book closure date already past.
-  const annualizedDividendIncome = nonCashPortfolio.reduce((sum, holding) => {
-    if (holding.payouts && holding.payouts.length > 0) {
-      const paid = holding.payouts.reduce((s, p) => {
-        if (!p.bookClosureDate) return s;
-        const ts = new Date(p.bookClosureDate).getTime();
-        if (!Number.isFinite(ts) || ts > todayTs) return s;
-        return s + p.dividendPerShare;
-      }, 0);
-      return sum + holding.shares * paid;
-    }
-    // Fallback: use legacy field (paid + unpaid TTM mix).
-    return sum + holding.shares * holding.dividendPerShare;
-  }, 0);
-
-  const equityCost = nonCashPortfolio.reduce((sum, holding) => sum + holding.costValue, 0);
-  const yieldOnCost = equityCost > 0 ? annualizedDividendIncome / equityCost : 0;
+  const totalInvested = nonCashPortfolio.reduce((s, h) => s + h.costValue, 0);
+  const equityMarketValue = nonCashPortfolio.reduce((s, h) => s + h.marketValue, 0);
 
   const upcomingDividends = useMemo(() => {
     type Up = { ticker: string; holding: typeof nonCashPortfolio[number]; date: string; dps: number };
@@ -292,156 +276,6 @@ function App() {
     items.sort((a, b) => a.date.localeCompare(b.date));
     return items.slice(0, 4);
   }, [nonCashPortfolio, todayTs]);
-
-  const dividendCalendar = useMemo(() => {
-    const monthsPast = 6;
-    const monthsFuture = 6;
-    const now = new Date();
-    const currentMonthIndex = monthsPast;
-    const totalMonths = monthsPast + monthsFuture;
-
-    type DivStatus = "received" | "scheduled" | "projected";
-    const cells: Array<{
-      key: string;
-      label: string;
-      year: number;
-      month: number;
-      total: number;
-      isPast: boolean;
-      isCurrent: boolean;
-      entries: {
-        ticker: string;
-        amount: number;
-        date: string;
-        status: DivStatus;
-      }[];
-    }> = [];
-
-    for (let i = 0; i < totalMonths; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - monthsPast + i, 1);
-      const year = d.getFullYear();
-      const month = d.getMonth();
-      cells.push({
-        key: `${year}-${String(month + 1).padStart(2, "0")}`,
-        label: new Intl.DateTimeFormat("en-GB", {
-          month: "short",
-          year: "2-digit",
-        }).format(d),
-        year,
-        month,
-        total: 0,
-        isPast: i < currentMonthIndex,
-        isCurrent: i === currentMonthIndex,
-        entries: [],
-      });
-    }
-
-    const windowStartTs = new Date(cells[0].year, cells[0].month, 1).getTime();
-    const lastCell = cells[cells.length - 1];
-    const windowEndTs = new Date(lastCell.year, lastCell.month + 1, 0).getTime();
-
-    function placeEntry(
-      ticker: string,
-      amount: number,
-      date: Date,
-      status: DivStatus,
-    ) {
-      const target = cells.find(
-        (c) => c.year === date.getFullYear() && c.month === date.getMonth(),
-      );
-      if (!target) return;
-      target.total += amount;
-      target.entries.push({
-        ticker,
-        amount,
-        date: date.toISOString().slice(0, 10),
-        status,
-      });
-    }
-
-    const currentMonthTs = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      1,
-    ).getTime();
-
-    for (const holding of nonCashPortfolio) {
-      // Per-payout placement: use the scraper's payouts list when available.
-      // Each payout sits in its own book closure month, paid vs scheduled
-      // determined by whether the closure date has passed.
-      if (holding.payouts && holding.payouts.length > 0) {
-        for (const payout of holding.payouts) {
-          if (!payout.bookClosureDate || payout.dividendPerShare <= 0) continue;
-          const pd = new Date(payout.bookClosureDate);
-          if (!Number.isFinite(pd.getTime())) continue;
-          const amount = holding.shares * payout.dividendPerShare;
-
-          if (pd.getTime() >= windowStartTs && pd.getTime() <= windowEndTs) {
-            const status: DivStatus =
-              pd.getTime() < currentMonthTs ? "received" : "scheduled";
-            placeEntry(holding.ticker, amount, pd, status);
-          }
-
-          // Project next annual cycle 12 months forward if it lands in window.
-          const next = new Date(pd);
-          next.setFullYear(next.getFullYear() + 1);
-          if (
-            next.getTime() >= windowStartTs &&
-            next.getTime() <= windowEndTs
-          ) {
-            placeEntry(holding.ticker, amount, next, "projected");
-          }
-
-          // Also roll past dates forward to fill window when actual is outside.
-          if (pd.getTime() < windowStartTs) {
-            const projected = new Date(pd);
-            while (projected.getTime() < windowStartTs) {
-              projected.setFullYear(projected.getFullYear() + 1);
-            }
-            if (projected.getTime() <= windowEndTs) {
-              placeEntry(holding.ticker, amount, projected, "projected");
-            }
-          }
-        }
-        continue;
-      }
-
-      // Fallback (no per-payout data yet): place full TTM sum on legacy date.
-      if (!holding.payoutDate || holding.dividendPerShare <= 0) continue;
-      const pd = new Date(holding.payoutDate);
-      if (!Number.isFinite(pd.getTime())) continue;
-      const amount = holding.shares * holding.dividendPerShare;
-
-      if (pd.getTime() >= windowStartTs && pd.getTime() <= windowEndTs) {
-        const status: DivStatus =
-          pd.getTime() < currentMonthTs ? "received" : "scheduled";
-        placeEntry(holding.ticker, amount, pd, status);
-
-        const next = new Date(pd);
-        next.setFullYear(next.getFullYear() + 1);
-        if (next.getTime() <= windowEndTs) {
-          placeEntry(holding.ticker, amount, next, "projected");
-        }
-        continue;
-      }
-
-      const projected = new Date(pd);
-      while (projected.getTime() < windowStartTs) {
-        projected.setFullYear(projected.getFullYear() + 1);
-      }
-      if (projected.getTime() <= windowEndTs) {
-        placeEntry(holding.ticker, amount, projected, "projected");
-      }
-    }
-
-    const totalReceived = cells
-      .filter((c) => c.isPast)
-      .reduce((s, c) => s + c.total, 0);
-    const totalFuture = cells
-      .filter((c) => !c.isPast)
-      .reduce((s, c) => s + c.total, 0);
-    return { cells, totalReceived, totalFuture };
-  }, [nonCashPortfolio]);
 
   const sectorWeightMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -576,7 +410,6 @@ function App() {
         case "costBasis": return h.costBasis;
         case "price": return h.price;
         case "dayChangePct": return h.dayChangePct;
-        case "divYield": return h.costBasis > 0 ? (h.dividendPerShare / h.costBasis) * 100 : 0;
         case "marketValue": return h.marketValue;
         case "weight": return h.weight;
         case "pnlToday": return h.marketValue * h.dayChangePct / (100 + h.dayChangePct || 1);
@@ -788,6 +621,15 @@ function App() {
     setInvestments((current) => current.filter((e) => e.id !== id));
   }
 
+  function updateHoldingCostBasis(id: string, value: number) {
+    if (!Number.isFinite(value) || value < 0) return;
+    setHoldings((current) =>
+      current.map((h) =>
+        h.id === id ? { ...h, costBasis: Math.round(value * 100) / 100 } : h,
+      ),
+    );
+  }
+
   async function removeHolding(id: string) {
     const holding = holdings.find((h) => h.id === id);
     if (!holding) return;
@@ -816,16 +658,16 @@ function App() {
     setFetching(true);
 
     try {
+      const tickers = nonCash.map((h) => h.ticker);
       const [quotes, dividends] = await Promise.all([
-        fetchMarketData(),
-        fetchDividends(nonCash.map((h) => h.ticker)),
+        fetchMarketData(tickers),
+        fetchDividends(tickers),
       ]);
       const { holdings: updated } = applyMarketData(holdings, quotes, dividends);
       setHoldings(updated);
       setLastFetchedAt(new Date().toISOString());
 
-      const equityOnly = updated.filter((h) => !isCashHolding(h));
-      const snapshot = computePortfolio(equityOnly);
+      const snapshot = computePortfolio(buildHoldingsWithCash(updated, cashDraft));
       const { isWeekday, afterClose, pkDate } = psxCloseStatus();
       if (isWeekday && afterClose) {
         setHistory((cur) => {
@@ -1095,13 +937,13 @@ function App() {
       <section className="stats-grid">
         <StatCard
           label="Total value"
-          value={formatCurrency(portfolio.totalValue)}
-          detail={`${portfolio.holdings.length} positions`}
+          value={formatCurrency(equityMarketValue)}
+          detail={`${nonCashPortfolio.length} position${nonCashPortfolio.length === 1 ? "" : "s"} · excludes cash`}
         />
         <StatCard
           label="Total avg cost"
-          value={formatCurrency(portfolio.totalCost)}
-          detail="Cost basis of all positions"
+          value={formatCurrency(totalInvested)}
+          detail={`Cost basis of ${nonCashPortfolio.length} position${nonCashPortfolio.length === 1 ? "" : "s"} · excludes cash`}
         />
         <StatCard
           label="Unrealized P/L"
@@ -1129,9 +971,13 @@ function App() {
           detail={`${formatPercent(cashWeight)} of portfolio`}
         />
         <StatCard
-          label="Dividend yield on cost"
-          value={formatPercent(yieldOnCost)}
-          detail={`TTM dividends ${formatCompactCurrency(annualizedDividendIncome)} / cost basis · excludes capital gains`}
+          label="Total invested"
+          value={formatCurrency(investmentSummary.totalInvested)}
+          detail={
+            investmentSummary.count > 0
+              ? `${investmentSummary.count} Invest entr${investmentSummary.count === 1 ? "y" : "ies"}`
+              : "Add entries in Invest tab"
+          }
         />
       </section>
 
@@ -1528,18 +1374,6 @@ function App() {
           </div>
         </article>
 
-        <article className="panel insight-grid-span">
-          <div className="panel-header">
-            <div>
-              <p className="panel-kicker">Calendar</p>
-              <h2>Dividend payments</h2>
-            </div>
-            <span className="panel-meta">
-              Received {formatCompactCurrency(dividendCalendar.totalReceived)} past 6mo · Expected {formatCompactCurrency(dividendCalendar.totalFuture)} next 6mo
-            </span>
-          </div>
-          <DividendCalendarChart cells={dividendCalendar.cells} />
-        </article>
       </section>
       )}
 
@@ -1649,7 +1483,6 @@ function App() {
                 <SortHeader label="Avg price" sortKey="costBasis" sort={holdingsSort} onClick={toggleSort} align="right" />
                 <SortHeader label="Current price" sortKey="price" sort={holdingsSort} onClick={toggleSort} align="right" />
                 <SortHeader label="Day %" sortKey="dayChangePct" sort={holdingsSort} onClick={toggleSort} align="right" />
-                <SortHeader label="Div yield" sortKey="divYield" sort={holdingsSort} onClick={toggleSort} align="right" />
                 <SortHeader label="Market value" sortKey="marketValue" sort={holdingsSort} onClick={toggleSort} align="right" />
                 <SortHeader label="Weight" sortKey="weight" sort={holdingsSort} onClick={toggleSort} align="right" />
                 <SortHeader label="P&L today" sortKey="pnlToday" sort={holdingsSort} onClick={toggleSort} align="right" />
@@ -1660,7 +1493,7 @@ function App() {
             <tbody>
               {sortedHoldings.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="empty-state">
+                  <td colSpan={13} className="empty-state">
                     {holdingsSearch ? "No matches." : "No holdings yet. Use Quick add above or Import a saved backup."}
                   </td>
                 </tr>
@@ -1673,17 +1506,39 @@ function App() {
                       <td>{holding.name}</td>
                       <td>{holding.sector}</td>
                       <td className="right">{holding.shares.toLocaleString()}</td>
-                      <td className="right">{formatCurrency(holding.costBasis)}</td>
+                      <td className="right">
+                        {syntheticCash ? (
+                          formatCurrency(holding.costBasis)
+                        ) : (
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            className="inline-edit"
+                            defaultValue={holding.costBasis}
+                            title="Edit avg price (cost basis per share)"
+                            onBlur={(e) => {
+                              const next = Number(e.currentTarget.value);
+                              if (next !== holding.costBasis) {
+                                updateHoldingCostBasis(holding.id, next);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                              if (e.key === "Escape") {
+                                e.currentTarget.value = String(holding.costBasis);
+                                e.currentTarget.blur();
+                              }
+                            }}
+                          />
+                        )}
+                      </td>
                       <td className="right">
                         {formatCurrency(holding.price)}
                       </td>
                       <td className={`right ${holding.dayChangePct >= 0 ? "positive" : "negative"}`}>
                         {syntheticCash ? "-" : `${holding.dayChangePct.toFixed(2)}%`}
-                      </td>
-                      <td className="right">
-                        {syntheticCash || holding.costBasis <= 0 || holding.dividendPerShare <= 0
-                          ? "-"
-                          : `${((holding.dividendPerShare / holding.costBasis) * 100).toFixed(2)}%`}
                       </td>
                       <td className="right">{formatCurrency(holding.marketValue)}</td>
                       <td className="right">{formatPercent(holding.weight)}</td>
@@ -2079,13 +1934,6 @@ function normalizeHolding(holding: Holding): Holding {
     dividendPerShare: Number(holding.dividendPerShare ?? 0),
     payoutDate: holding.payoutDate ?? "",
   };
-}
-
-function isCashHolding(h: Holding): boolean {
-  if (h.id?.startsWith("cash-")) return true;
-  const ticker = (h.ticker ?? "").trim().toUpperCase();
-  const sector = (h.sector ?? "").trim().toLowerCase();
-  return ticker === "CASH" || sector === "cash";
 }
 
 function buildHoldingsWithCash(
@@ -2521,12 +2369,9 @@ function PortfolioHistoryChart({
 
   const hoveredIdx = hover?.index ?? null;
   const lastSnap = snapshots[snapshots.length - 1];
-  const firstSnap = snapshots[0];
-  const valueChange = lastSnap.totalValue - firstSnap.totalValue;
-  const valueChangePct =
-    firstSnap.totalValue > 0
-      ? (valueChange / firstSnap.totalValue) * 100
-      : 0;
+  const unrealizedPnl = lastSnap.totalValue - lastSnap.totalCost;
+  const unrealizedPnlPct =
+    lastSnap.totalCost > 0 ? (unrealizedPnl / lastSnap.totalCost) * 100 : 0;
   const twrCumulative = twrIndex[twrIndex.length - 1] - 100;
 
   return (
@@ -2541,10 +2386,11 @@ function PortfolioHistoryChart({
             <>
               <strong>{formatCurrency(lastSnap.totalValue)}</strong>
               <span
-                className={valueChange >= 0 ? "positive" : "negative"}
+                className={unrealizedPnl >= 0 ? "positive" : "negative"}
+                title="Unrealized P&L on current snapshot (cost-basis adjusted, deposit-neutral)"
               >
-                {valueChange >= 0 ? "+" : ""}
-                {formatCurrency(valueChange)} ({formatSignedPercent(valueChangePct, 2)})
+                {unrealizedPnl >= 0 ? "+" : ""}
+                {formatCurrency(unrealizedPnl)} ({formatSignedPercent(unrealizedPnlPct, 2)})
               </span>
             </>
           ) : (
@@ -3071,119 +2917,6 @@ function RankedAllocation({
           </div>
         );
       })}
-    </div>
-  );
-}
-
-type DividendStatus = "received" | "scheduled" | "projected";
-
-type DividendCell = {
-  key: string;
-  label: string;
-  year: number;
-  month: number;
-  total: number;
-  isPast: boolean;
-  isCurrent: boolean;
-  entries: {
-    ticker: string;
-    amount: number;
-    date: string;
-    status: DividendStatus;
-  }[];
-};
-
-const DIVIDEND_STATUS_LABEL: Record<DividendStatus, string> = {
-  received: "received",
-  scheduled: "scheduled",
-  projected: "projected (annual cycle)",
-};
-
-function DividendCalendarChart({ cells }: { cells: DividendCell[] }) {
-  const [hovered, setHovered] = useState<number | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const max = cells.reduce((m, c) => Math.max(m, c.total), 0);
-
-  if (max === 0) {
-    return (
-      <div className="chart-empty">
-        No dividend payout dates yet. Refresh prices to populate the calendar.
-      </div>
-    );
-  }
-
-  const containerWidth = containerRef.current?.clientWidth ?? 600;
-  const hoveredCell = hovered !== null ? cells[hovered] : null;
-
-  function dominantStatus(cell: DividendCell): DividendStatus {
-    if (cell.entries.length === 0) {
-      return cell.isPast ? "received" : "scheduled";
-    }
-    // Pick status of the largest entry as the bar's primary color.
-    let top = cell.entries[0];
-    for (const e of cell.entries) if (e.amount > top.amount) top = e;
-    return top.status;
-  }
-
-  return (
-    <div ref={containerRef} className="dividend-calendar">
-      <div className="dividend-calendar-legend">
-        <span className="dividend-legend-item">
-          <span className="dividend-swatch dividend-swatch--received" />
-          Received
-        </span>
-        <span className="dividend-legend-item">
-          <span className="dividend-swatch dividend-swatch--scheduled" />
-          Scheduled
-        </span>
-        <span className="dividend-legend-item">
-          <span className="dividend-swatch dividend-swatch--projected" />
-          Projected (annual cycle)
-        </span>
-      </div>
-
-      <div className="dividend-calendar-bars">
-        {cells.map((cell, i) => {
-          const heightPct = max > 0 ? (cell.total / max) * 100 : 0;
-          const status = dominantStatus(cell);
-          return (
-            <button
-              key={cell.key}
-              type="button"
-              className={`dividend-bar dividend-bar--${status} ${cell.total === 0 ? "dividend-bar--empty" : ""} ${cell.isCurrent ? "dividend-bar--current" : ""} ${hovered === i ? "dividend-bar--active" : ""}`}
-              onPointerEnter={() => setHovered(i)}
-              onPointerLeave={() => setHovered(null)}
-              onFocus={() => setHovered(i)}
-              onBlur={() => setHovered(null)}
-              aria-label={`${cell.label}: ${formatCurrency(cell.total)} ${status}`}
-            >
-              <span className="dividend-bar-track">
-                <span
-                  className="dividend-bar-fill"
-                  style={{ height: `${heightPct}%` }}
-                />
-              </span>
-              <span className="dividend-bar-amount">
-                {cell.total === 0 ? "—" : formatCompactCurrency(cell.total)}
-              </span>
-              <span className="dividend-bar-label">{cell.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {hoveredCell && hoveredCell.entries.length > 0 ? (
-        <ChartTooltip
-          x={containerWidth / 2}
-          y={20}
-          containerWidth={containerWidth}
-          title={`${hoveredCell.label} · ${formatCurrency(hoveredCell.total)}`}
-          rows={hoveredCell.entries.map((entry) => ({
-            label: `${entry.ticker} · ${formatDateShort(entry.date)} · ${DIVIDEND_STATUS_LABEL[entry.status]}`,
-            value: formatCurrency(entry.amount),
-          }))}
-        />
-      ) : null}
     </div>
   );
 }

@@ -32,15 +32,7 @@
 
 	# root landing
 	handle {
-		respond <<HTML 200
-			<!doctype html><meta charset=utf-8><title>apps</title>
-			<style>body{font-family:system-ui;padding:2rem;max-width:40rem;margin:auto}</style>
-			<h1>Apps</h1>
-			<ul>
-			  <li><a href="/psx/">PSX Portfolio</a></li>
-			  <li><a href="/license/">License Server</a></li>
-			</ul>
-			HTML
-		}
+		header Content-Type "text/html; charset=utf-8"
+		respond `<!doctype html><meta charset=utf-8><title>apps</title><style>body{font-family:system-ui;padding:2rem;max-width:40rem;margin:auto}</style><h1>Apps</h1><ul><li><a href="/psx/">PSX Portfolio</a></li><li><a href="/license/">License Server</a></li></ul>` 200
 	}
 }

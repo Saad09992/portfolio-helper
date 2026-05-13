@@ -24,6 +24,7 @@ import {
 import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchDividends, fetchMarketData } from "./services/psx-scraper";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
+import { apiUrl } from "./services/api-url";
 
 const BACKUP_SCHEMA_VERSION = 1;
 const lastFetchedStorageKey = `${storageKey}:last-fetched`;
@@ -3025,7 +3026,7 @@ function StockSearch({
   const wrapRef = useRef<HTMLLabelElement>(null);
 
   useEffect(() => {
-    fetch("/api/psx/stocks")
+    fetch(apiUrl("/api/psx/stocks"))
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) setStocks(data);

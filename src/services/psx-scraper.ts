@@ -1,4 +1,5 @@
 import type { Holding, Payout } from "../types";
+import { apiUrl } from "./api-url";
 
 export type MarketQuote = {
   ticker: string;
@@ -17,7 +18,7 @@ export async function fetchMarketData(tickers: string[]): Promise<MarketQuote[]>
   if (tickers.length === 0) return [];
 
   const response = await fetch(
-    `/api/psx/market-data?tickers=${tickers.join(",")}`,
+    apiUrl(`/api/psx/market-data?tickers=${tickers.join(",")}`),
   );
 
   if (!response.ok) {
@@ -41,7 +42,7 @@ export async function fetchDividends(tickers: string[]): Promise<DividendInfo[]>
   if (tickers.length === 0) return [];
 
   const response = await fetch(
-    `/api/psx/dividends?tickers=${tickers.join(",")}`,
+    apiUrl(`/api/psx/dividends?tickers=${tickers.join(",")}`),
   );
 
   if (!response.ok) return [];

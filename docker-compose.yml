@@ -4,7 +4,7 @@ services:
       context: .
       args:
         # set to /psx/ if mounting under Caddy's handle_path /psx/*
-        BASE_PATH: /
+        BASE_PATH: /psx/
     image: psx-portfolio:latest
     container_name: psx
     restart: unless-stopped

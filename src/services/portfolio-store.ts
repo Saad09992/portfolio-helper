@@ -1,3 +1,5 @@
+import { apiUrl } from "./api-url";
+
 export type PortfolioFile = {
   holdings?: unknown;
   cash?: unknown;
@@ -10,7 +12,7 @@ export type PortfolioFile = {
 
 export async function loadPortfolioFromDisk(): Promise<PortfolioFile | null> {
   try {
-    const res = await fetch("/api/portfolio/load");
+    const res = await fetch(apiUrl("/api/portfolio/load"));
     if (!res.ok) return null;
     const data = (await res.json()) as PortfolioFile | null;
     return data ?? null;
@@ -30,7 +32,7 @@ export function savePortfolioToDisk(state: PortfolioFile, debounceMs = 500) {
     pending = null;
     if (!body) return;
     try {
-      await fetch("/api/portfolio/save", {
+      await fetch(apiUrl("/api/portfolio/save"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...body, savedAt: new Date().toISOString() }),

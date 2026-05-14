@@ -214,6 +214,36 @@ export function computeTwrIndex(snapshots: TwrSnapshot[]): number[] {
   return index;
 }
 
+export type PortfolioSnapshot = {
+  date: string;
+  totalValue: number;
+  totalCost: number;
+  gainLoss: number;
+};
+
+// Upsert `entry` into daily portfolio history, keyed by its PKT calendar day.
+// If a snapshot for that day already exists, replace it in place — preserves
+// array order and length, returns a new array reference so React persistence
+// effects fire. Otherwise append and cap at `maxLen`. A refresh after PSX
+// close re-captures the day: the PSX API may serve a stale close price on the
+// first post-close refresh, so the latest refresh always wins.
+// `pkDateOf` is injected to keep this pure and unit-testable (no timezone dep).
+export function upsertDailySnapshot(
+  history: PortfolioSnapshot[],
+  entry: PortfolioSnapshot,
+  pkDateOf: (iso: string) => string,
+  maxLen = 365,
+): PortfolioSnapshot[] {
+  const key = pkDateOf(entry.date);
+  const idx = history.findIndex((s) => pkDateOf(s.date) === key);
+  if (idx !== -1) {
+    const next = history.slice();
+    next[idx] = entry;
+    return next;
+  }
+  return [...history, entry].slice(-maxLen);
+}
+
 export type XirrFlow = { date: Date; amount: number };
 
 export function xirr(flows: XirrFlow[], guess = 0.1): number {

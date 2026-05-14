@@ -5,6 +5,7 @@ import {
   formatDateShort,
   formatSignedPercent,
   trailingTwelveMonthDividend,
+  upsertDailySnapshot,
   xirr,
 } from "./utils";
 
@@ -41,6 +42,87 @@ describe("computeTwrIndex", () => {
       { totalValue: 2200, totalCost: 2000 }, // 10% market gain on 2000
     ]);
     expect(idx[2]).toBeCloseTo(110, 4);
+  });
+});
+
+describe("upsertDailySnapshot", () => {
+  const pkDateOf = (iso: string) => iso.slice(0, 10);
+  const snap = (
+    date: string,
+    totalValue: number,
+    totalCost = 1000,
+    gainLoss = totalValue - totalCost,
+  ) => ({ date, totalValue, totalCost, gainLoss });
+
+  it("appends to empty history", () => {
+    const entry = snap("2026-05-14T10:00:00Z", 1200);
+    expect(upsertDailySnapshot([], entry, pkDateOf)).toEqual([entry]);
+  });
+
+  it("appends when the last entry is a different PKT day", () => {
+    const history = [snap("2026-05-13T10:00:00Z", 1100)];
+    const entry = snap("2026-05-14T10:00:00Z", 1200);
+    const result = upsertDailySnapshot(history, entry, pkDateOf);
+    expect(result).toHaveLength(2);
+    expect(result[1]).toBe(entry);
+    expect(result[0]).toBe(history[0]);
+  });
+
+  it("replaces in place when a snapshot for the same PKT day exists", () => {
+    const history = [
+      snap("2026-05-13T10:00:00Z", 1100),
+      snap("2026-05-14T11:00:00Z", 1150),
+    ];
+    const entry = snap("2026-05-14T15:45:00Z", 1234);
+    const result = upsertDailySnapshot(history, entry, pkDateOf);
+    expect(result).toHaveLength(2);
+    expect(result[1]).toBe(entry);
+    expect(result[0]).toBe(history[0]);
+    expect(result).not.toBe(history);
+  });
+
+  it("replaces the matching index even when it is not last", () => {
+    const history = [
+      snap("2026-05-14T09:00:00Z", 1150),
+      snap("2026-05-15T10:00:00Z", 1300),
+    ];
+    const entry = snap("2026-05-14T16:00:00Z", 1199);
+    const result = upsertDailySnapshot(history, entry, pkDateOf);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toBe(entry);
+    expect(result[1]).toBe(history[1]);
+  });
+
+  it("caps appended history at maxLen, dropping the oldest", () => {
+    const dated = Array.from({ length: 365 }, (_, i) => {
+      const d = new Date(Date.UTC(2025, 0, 1) + i * 86400000);
+      return snap(d.toISOString(), 1000 + i);
+    });
+    const entry = snap("2026-01-02T00:00:00Z", 9999);
+    const result = upsertDailySnapshot(dated, entry, pkDateOf);
+    expect(result).toHaveLength(365);
+    expect(result[result.length - 1]).toBe(entry);
+    expect(result[0]).toBe(dated[1]);
+  });
+
+  it("does not grow or trim when replacing within a full history", () => {
+    const dated = Array.from({ length: 365 }, (_, i) => {
+      const d = new Date(Date.UTC(2025, 0, 1) + i * 86400000);
+      return snap(d.toISOString(), 1000 + i);
+    });
+    const entry = snap(dated[dated.length - 1].date, 5555);
+    const result = upsertDailySnapshot(dated, entry, pkDateOf);
+    expect(result).toHaveLength(365);
+    expect(result[result.length - 1]).toBe(entry);
+    expect(result[0]).toBe(dated[0]);
+  });
+
+  it("latest refresh wins even when the new value is lower (stale-price fix)", () => {
+    const history = [snap("2026-05-14T15:35:00Z", 5000)];
+    const corrected = snap("2026-05-14T18:00:00Z", 4200);
+    expect(upsertDailySnapshot(history, corrected, pkDateOf)).toEqual([
+      corrected,
+    ]);
   });
 });
 

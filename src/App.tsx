@@ -11,8 +11,10 @@ import {
   formatPercent,
   formatRelativeTime,
   formatSignedPercent,
+  type PortfolioSnapshot,
   sampleHoldings,
   storageKey,
+  upsertDailySnapshot,
   xirr,
 } from "./utils";
 import {
@@ -68,13 +70,6 @@ type DraftInvestment = {
   label: string;
   amount: number;
   valueEom: number;
-};
-
-type PortfolioSnapshot = {
-  date: string;
-  totalValue: number;
-  totalCost: number;
-  gainLoss: number;
 };
 
 type SortDir = "asc" | "desc";
@@ -669,21 +664,15 @@ function App() {
       setLastFetchedAt(new Date().toISOString());
 
       const snapshot = computePortfolio(buildHoldingsWithCash(updated, cashDraft));
-      const { isWeekday, afterClose, pkDate } = psxCloseStatus();
+      const { isWeekday, afterClose } = psxCloseStatus();
       if (isWeekday && afterClose) {
-        setHistory((cur) => {
-          if (cur.some((s) => pkDateOf(s.date) === pkDate)) return cur;
-          const next = [
-            ...cur,
-            {
-              date: new Date().toISOString(),
-              totalValue: snapshot.totalValue,
-              totalCost: snapshot.totalCost,
-              gainLoss: snapshot.totalGainLoss,
-            },
-          ];
-          return next.slice(-365);
-        });
+        const entry = {
+          date: new Date().toISOString(),
+          totalValue: snapshot.totalValue,
+          totalCost: snapshot.totalCost,
+          gainLoss: snapshot.totalGainLoss,
+        };
+        setHistory((cur) => upsertDailySnapshot(cur, entry, pkDateOf));
       }
     } catch {
       // ignore
@@ -990,29 +979,6 @@ function App() {
           </div>
           <div className="panel-meta-row">
             <span className="panel-meta">{history.length} snapshot{history.length === 1 ? "" : "s"} · 1/day after PSX close (15:30 PKT)</span>
-            <button
-              type="button"
-              className="button button-ghost"
-              onClick={async () => {
-                if (history.length === 0) return;
-                const ok = await confirm({
-                  title: "Clear history",
-                  message: (
-                    <>
-                      Wipe all <strong>{history.length}</strong> chart snapshot(s)? Daily history will rebuild after each PSX close. This cannot be undone.
-                    </>
-                  ),
-                  confirmLabel: "Clear history",
-                  tone: "danger",
-                });
-                if (!ok) return;
-                setHistory([]);
-              }}
-              disabled={history.length === 0}
-              title="Wipe portfolio chart history"
-            >
-              Clear history
-            </button>
           </div>
         </div>
         <PortfolioHistoryChart snapshots={history} lastFetchedIso={lastFetchedAt} />

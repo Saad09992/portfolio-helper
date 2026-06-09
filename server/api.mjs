@@ -1,11 +1,49 @@
 import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "fs";
-import { readFile, writeFile, rename } from "fs/promises";
+import { copyFile, readFile, rename, rm, writeFile } from "fs/promises";
 import { dirname } from "path";
+
+const BACKUP_GENERATIONS = 5;
+
+async function rotateBackups(portfolioPath) {
+  if (!existsSync(portfolioPath)) return;
+  // Drop the oldest, shift the rest down, copy current → .bak.1
+  for (let i = BACKUP_GENERATIONS; i >= 1; i--) {
+    const src = i === 1 ? portfolioPath : `${portfolioPath}.bak.${i - 1}`;
+    const dst = `${portfolioPath}.bak.${i}`;
+    if (i === BACKUP_GENERATIONS) {
+      // Drop oldest; ignore if it doesn't exist
+      await rm(dst, { force: true });
+    }
+    if (i === 1 || existsSync(src)) {
+      await copyFile(src, dst).catch((err) => {
+        console.warn(`[psx] backup rotate ${src} -> ${dst} failed:`, err.message);
+      });
+    }
+  }
+}
+
+let saveQueue = Promise.resolve();
+export function serializeSave(work) {
+  const next = saveQueue.then(work, work);
+  // Swallow errors on the queue so one failure does not block subsequent saves
+  saveQueue = next.catch(() => undefined);
+  return next;
+}
+
+export async function savePortfolioBundle(portfolioPath, body) {
+  const json = typeof body === "string" ? body : JSON.stringify(body);
+  JSON.parse(json);
+  mkdirSync(dirname(portfolioPath), { recursive: true });
+  await rotateBackups(portfolioPath);
+  const tmp = `${portfolioPath}.tmp`;
+  await writeFile(tmp, json, "utf-8");
+  await rename(tmp, portfolioPath);
+}
 
 const PSX_TERMINAL = "https://psxterminal.com";
 
-async function fetchQuote(ticker) {
+export async function fetchQuote(ticker) {
   try {
     const res = await fetch(
       `${PSX_TERMINAL}/api/fundamentals/${encodeURIComponent(ticker)}`,
@@ -18,7 +56,8 @@ async function fetchQuote(ticker) {
       current: json.data.price,
       changePct: json.data.changePercent,
     };
-  } catch {
+  } catch (err) {
+    console.warn(`[psx] fetchQuote(${ticker}) failed:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -65,7 +104,8 @@ async function fetchDividend(ticker) {
       payoutDate: earliestUpcoming,
       payouts,
     };
-  } catch {
+  } catch (err) {
+    console.warn(`[psx] fetchDividend(${ticker}) failed:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -99,19 +139,15 @@ export function createApiMiddleware({ dbPath, portfolioPath }) {
     }
 
     if (url.startsWith("/api/portfolio/save") && req.method === "POST") {
-      (async () => {
+      serializeSave(async () => {
         try {
           const body = await readBody(req);
-          JSON.parse(body);
-          mkdirSync(dirname(portfolioPath), { recursive: true });
-          const tmp = `${portfolioPath}.tmp`;
-          await writeFile(tmp, body, "utf-8");
-          await rename(tmp, portfolioPath);
+          await savePortfolioBundle(portfolioPath, body);
           sendJson(res, 200, { ok: true });
         } catch (err) {
           sendJson(res, 400, { error: String(err) });
         }
-      })();
+      });
       return;
     }
 

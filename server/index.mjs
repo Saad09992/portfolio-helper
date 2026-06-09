@@ -3,6 +3,7 @@ import { createReadStream, statSync, existsSync } from "fs";
 import { resolve, dirname, join, extname, normalize } from "path";
 import { fileURLToPath } from "url";
 import { createApiMiddleware } from "./api.mjs";
+import { runDailySync, startScheduler } from "./cron.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -15,6 +16,21 @@ const PORTFOLIO_PATH = resolve(DATA_DIR, "portfolio.json");
 
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? "0.0.0.0";
+const API_TOKEN = (process.env.PSX_API_TOKEN ?? "").trim();
+
+if (!API_TOKEN) {
+  console.warn("[psx] PSX_API_TOKEN not set — /api/* is unauthenticated");
+}
+
+function checkAuth(req, res) {
+  if (!API_TOKEN) return true;
+  const header = req.headers["authorization"] ?? "";
+  const expected = `Bearer ${API_TOKEN}`;
+  if (header === expected) return true;
+  res.writeHead(401, { "Content-Type": "application/json", "WWW-Authenticate": "Bearer" });
+  res.end(JSON.stringify({ error: "unauthorized" }));
+  return false;
+}
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -82,18 +98,34 @@ if (!existsSync(DIST)) {
 
 const server = http.createServer((req, res) => {
   if ((req.url ?? "").startsWith("/api/")) {
+    if (!checkAuth(req, res)) return;
     return api(req, res, () => serveStatic(req, res));
   }
   serveStatic(req, res);
 });
 
+let stopScheduler = () => {};
+
 server.listen(PORT, HOST, () => {
   console.log(`[psx] listening on http://${HOST}:${PORT}`);
   console.log(`[psx] data dir: ${DATA_DIR}`);
+
+  if (process.env.CRON_DISABLED) {
+    console.log("[psx:cron] disabled via CRON_DISABLED");
+  } else {
+    if (process.env.CRON_RUN_ON_BOOT) {
+      console.log("[psx:cron] CRON_RUN_ON_BOOT=1 — forcing immediate sync");
+      runDailySync({ portfolioPath: PORTFOLIO_PATH, force: true }).catch((err) =>
+        console.error("[psx:cron] forced run failed:", err),
+      );
+    }
+    stopScheduler = startScheduler({ portfolioPath: PORTFOLIO_PATH });
+  }
 });
 
 const shutdown = (sig) => {
   console.log(`[psx] ${sig} received, shutting down`);
+  stopScheduler();
   server.close(() => process.exit(0));
 };
 process.on("SIGINT", () => shutdown("SIGINT"));

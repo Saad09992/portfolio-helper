@@ -626,6 +626,15 @@ function App() {
     );
   }
 
+  function updateHoldingShares(id: string, value: number) {
+    if (!Number.isFinite(value) || value <= 0) return;
+    setHoldings((current) =>
+      current.map((h) =>
+        h.id === id ? { ...h, shares: Math.round(value) } : h,
+      ),
+    );
+  }
+
   async function removeHolding(id: string) {
     const holding = holdings.find((h) => h.id === id);
     if (!holding) return;
@@ -1472,7 +1481,34 @@ function App() {
                       <td>{holding.ticker}</td>
                       <td>{holding.name}</td>
                       <td>{holding.sector}</td>
-                      <td className="right">{holding.shares.toLocaleString()}</td>
+                      <td className="right">
+                        {syntheticCash ? (
+                          holding.shares.toLocaleString()
+                        ) : (
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            step="1"
+                            min="1"
+                            className="inline-edit"
+                            defaultValue={holding.shares}
+                            title="Edit shares"
+                            onBlur={(e) => {
+                              const next = Number(e.currentTarget.value);
+                              if (next !== holding.shares) {
+                                updateHoldingShares(holding.id, next);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                              if (e.key === "Escape") {
+                                e.currentTarget.value = String(holding.shares);
+                                e.currentTarget.blur();
+                              }
+                            }}
+                          />
+                        )}
+                      </td>
                       <td className="right">
                         {syntheticCash ? (
                           formatCurrency(holding.costBasis)

@@ -55,6 +55,7 @@ export async function fetchQuote(ticker) {
       ticker: json.data.symbol.toUpperCase(),
       current: json.data.price,
       changePct: json.data.changePercent,
+      asOf: typeof json.data.timestamp === "string" ? json.data.timestamp : null,
     };
   } catch (err) {
     console.warn(`[psx] fetchQuote(${ticker}) failed:`, err instanceof Error ? err.message : err);

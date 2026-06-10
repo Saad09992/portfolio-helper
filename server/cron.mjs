@@ -16,6 +16,27 @@ import {
 const CLOSE_HOUR_PKT = 15;
 const CLOSE_MIN_PKT = 30;
 const RUN_OFFSET_MIN = 5; // fire at 15:35 PKT — buffer for PSX API to settle
+const STALE_RETRY_MS = 10 * 60_000; // retry every 10 min when prices haven't settled
+const STALE_GIVE_UP_HOUR_PKT = 19; // stop retrying after 19:00 PKT — no snapshot for the day
+
+// PKT is UTC+5 fixed (no DST). Today's 15:30 PKT close instant = 10:30 UTC.
+function pkCloseInstantMs(pkDate) {
+  const [y, m, d] = String(pkDate).split("-").map(Number);
+  if (!y || !m || !d) return NaN;
+  return Date.UTC(y, m - 1, d, 10, 30, 0);
+}
+
+// Split quotes into fresh (asOf >= today's PKT close) and stale.
+export function quoteFreshness(quotes, closeMs) {
+  const fresh = [];
+  const stale = [];
+  for (const q of quotes) {
+    const ts = q && q.asOf ? Date.parse(q.asOf) : NaN;
+    if (Number.isFinite(ts) && Number.isFinite(closeMs) && ts >= closeMs) fresh.push(q);
+    else stale.push(q);
+  }
+  return { fresh, stale };
+}
 
 function defaultLog(...args) {
   console.log("[psx:cron]", ...args);
@@ -101,8 +122,26 @@ export async function runDailySync({
     return { ran: false, reason: "no-quotes" };
   }
 
+  const { pkDate } = psxCloseStatus();
+  const closeMs = pkCloseInstantMs(pkDate);
+  const { fresh, stale } = quoteFreshness(quotes, closeMs);
+  const missingCount = tickers.length - quotes.length;
+  if (stale.length > 0 || missingCount > 0) {
+    const staleTickers = stale.map((q) => q.ticker).join(",");
+    log(
+      `skip: quotes not settled — fresh=${fresh.length}/${tickers.length}, stale=${stale.length}, missing=${missingCount}${staleTickers ? `, staleTickers=${staleTickers}` : ""}`,
+    );
+    return {
+      ran: false,
+      reason: "quotes-stale",
+      fresh: fresh.length,
+      stale: stale.length,
+      missing: missingCount,
+    };
+  }
+
   const quoteMap = new Map();
-  for (const q of quotes) quoteMap.set(q.ticker.toUpperCase(), q);
+  for (const q of fresh) quoteMap.set(q.ticker.toUpperCase(), q);
 
   const updatedHoldings = holdings.map((h) => {
     if (String(h.id ?? "").startsWith("cash-")) return h;
@@ -152,20 +191,38 @@ export function startScheduler({ portfolioPath, log = defaultLog } = {}) {
   let timer = null;
   let stopped = false;
 
-  const scheduleNext = () => {
+  const withinStaleRetryWindow = () => {
+    const p = pkParts(new Date());
+    return p.hour < STALE_GIVE_UP_HOUR_PKT;
+  };
+
+  const scheduleIn = (delay, tag, fn) => {
     if (stopped) return;
-    const delay = msUntilNextRun(new Date());
     const fireAt = new Date(Date.now() + delay).toISOString();
-    log(`next run scheduled in ${Math.round(delay / 60_000)}m at ${fireAt}`);
-    timer = setTimeout(async () => {
-      try {
-        await runDailySync({ portfolioPath, log });
-      } catch (err) {
-        log(`run failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      scheduleNext();
-    }, delay);
+    log(`${tag} scheduled in ${Math.round(delay / 60_000)}m at ${fireAt}`);
+    timer = setTimeout(fn, delay);
     if (typeof timer.unref === "function") timer.unref();
+  };
+
+  const runAndReschedule = async () => {
+    let result;
+    try {
+      result = await runDailySync({ portfolioPath, log });
+    } catch (err) {
+      log(`run failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (result && result.reason === "quotes-stale") {
+      if (withinStaleRetryWindow()) {
+        scheduleIn(STALE_RETRY_MS, "stale-retry", runAndReschedule);
+        return;
+      }
+      log(`stale-retry give-up: past ${STALE_GIVE_UP_HOUR_PKT}:00 PKT, no snapshot for today`);
+    }
+    scheduleNext();
+  };
+
+  const scheduleNext = () => {
+    scheduleIn(msUntilNextRun(new Date()), "next run", runAndReschedule);
   };
 
   // Catch-up on boot: if we're inside the post-close window and today's PKT
@@ -175,21 +232,29 @@ export function startScheduler({ portfolioPath, log = defaultLog } = {}) {
     try {
       const bundle = await loadBundle(portfolioPath);
       const { isWeekday, afterClose, pkDate } = psxCloseStatus();
-      if (!bundle || !isWeekday || !afterClose) return;
+      if (!bundle || !isWeekday || !afterClose) return { stale: false };
       const history = Array.isArray(bundle.history) ? bundle.history : [];
       const haveToday = history.some((s) => pkDateOf(s.date) === pkDate);
       if (haveToday) {
         log(`catch-up skip: today (${pkDate}) already in history`);
-        return;
+        return { stale: false };
       }
       log(`catch-up: today (${pkDate}) missing, running now`);
-      await runDailySync({ portfolioPath, log });
+      const res = await runDailySync({ portfolioPath, log });
+      return { stale: res && res.reason === "quotes-stale" };
     } catch (err) {
       log(`catch-up failed: ${err instanceof Error ? err.message : String(err)}`);
+      return { stale: false };
     }
   };
 
-  catchUp().finally(() => scheduleNext());
+  catchUp().then(({ stale }) => {
+    if (stale && withinStaleRetryWindow()) {
+      scheduleIn(STALE_RETRY_MS, "stale-retry", runAndReschedule);
+    } else {
+      scheduleNext();
+    }
+  });
 
   return () => {
     stopped = true;

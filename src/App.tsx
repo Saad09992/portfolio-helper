@@ -1,68 +1,66 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Holding } from "./types";
+import type {
+  CashBuckets,
+  Holding,
+  InvestmentEntry,
+  TargetAllocation,
+} from "./types";
 import {
   computePortfolio,
-  computeTwrIndex,
   createId,
   formatCompactCurrency,
   formatCurrency,
   formatDateLong,
-  formatDateShort,
   formatPercent,
   formatRelativeTime,
   formatSignedPercent,
   type PortfolioSnapshot,
-  sampleHoldings,
   storageKey,
   upsertDailySnapshot,
   xirr,
 } from "./utils";
-import {
-  ChartTooltip,
-  buildCatmullRomPath,
-  niceTicks,
-  useChartHover,
-} from "./chartHelpers";
 import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchDividends, fetchMarketData } from "./services/psx-scraper";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
 import { apiUrl } from "./services/api-url";
+import { DRIFT, REBALANCE, UI_LIMITS } from "./constants";
+import { ToastViewport } from "./components/Toast";
+import { pushToast } from "./hooks/useToast";
+import { driftStatus, isRebalanceSuggestion } from "./portfolio/rebalance";
+import { ImportParseError, parseImportBundle } from "./portfolio/importExport";
+import { pkDateOf, psxCloseStatus } from "./portfolio/calendar";
+import {
+  buildHoldingsWithCash,
+  buildSectorBuckets,
+  getCashDeploymentIdea,
+  normalizeHolding,
+} from "./portfolio/holdings";
+import {
+  cashStorageKey,
+  historyStorageKey,
+  investStorageKey,
+  lastFetchedStorageKey,
+  loadCashBuckets,
+  loadHistory,
+  loadHoldings,
+  loadInvestments,
+  loadLastFetchedAt,
+  loadTargets,
+  targetStorageKey,
+} from "./portfolio/storage";
+import { PortfolioHistoryChart } from "./components/charts/PortfolioHistoryChart";
+import { InvestmentChart } from "./components/charts/InvestmentChart";
+import { Treemap } from "./components/charts/Treemap";
+import { getSliceColor } from "./components/charts/palette";
 
 const BACKUP_SCHEMA_VERSION = 1;
-const lastFetchedStorageKey = `${storageKey}:last-fetched`;
-
-type SectorBucket = {
-  sector: string;
-  value: number;
-  weight: number;
-  holdings: number;
-};
 
 type DraftHolding = Omit<Holding, "id" | "account">;
-
-type CashBuckets = {
-  available: number;
-};
-
-type TargetAllocation = {
-  id: string;
-  mode: "sector" | "ticker";
-  key: string;
-  targetWeight: number;
-};
 
 type DraftTarget = {
   mode: "sector" | "ticker";
   key: string;
   targetWeightPct: number;
-};
-
-type InvestmentEntry = {
-  id: string;
-  date: string;
-  label: string;
-  amount: number;
-  valueEom: number;
 };
 
 type DraftInvestment = {
@@ -86,11 +84,6 @@ type HoldingsSortKey =
   | "pnlToday"
   | "gainLoss";
 
-const cashStorageKey = `${storageKey}:cash-buckets`;
-const targetStorageKey = `${storageKey}:targets`;
-const investStorageKey = `${storageKey}:investments`;
-const historyStorageKey = `${storageKey}:history`;
-
 const emptyDraft: DraftHolding = {
   ticker: "",
   name: "",
@@ -101,10 +94,6 @@ const emptyDraft: DraftHolding = {
   dayChangePct: 0,
   dividendPerShare: 0,
   payoutDate: "",
-};
-
-const emptyCashBuckets: CashBuckets = {
-  available: 0,
 };
 
 const emptyTargetDraft: DraftTarget = {
@@ -270,7 +259,7 @@ function App() {
       }
     }
     items.sort((a, b) => a.date.localeCompare(b.date));
-    return items.slice(0, 4);
+    return items.slice(0, UI_LIMITS.UPCOMING_DIVIDENDS);
   }, [nonCashPortfolio, todayTs]);
 
   const sectorWeightMap = useMemo(() => {
@@ -303,8 +292,7 @@ function App() {
     const drift = currentWeight - target.targetWeight;
     const gapValue = (target.targetWeight - currentWeight) * portfolio.totalValue;
     const absDrift = Math.abs(drift);
-    const status: "severe" | "moderate" | "ontrack" =
-      absDrift >= 0.05 ? "severe" : absDrift >= 0.02 ? "moderate" : "ontrack";
+    const status: "severe" | "moderate" | "ontrack" = driftStatus(absDrift);
     const price = target.mode === "ticker" ? tickerPriceMap.get(target.key.toLowerCase()) ?? 0 : 0;
     const shares = price > 0 ? Math.abs(gapValue) / price : 0;
 
@@ -321,20 +309,17 @@ function App() {
   });
 
   const driftSummary = useMemo(() => {
-    const over = targetRows.filter((r) => r.drift > 0.005).length;
-    const under = targetRows.filter((r) => r.drift < -0.005).length;
+    const over = targetRows.filter((r) => r.drift > DRIFT.COUNT_THRESHOLD).length;
+    const under = targetRows.filter((r) => r.drift < -DRIFT.COUNT_THRESHOLD).length;
     const onTrack = targetRows.length - over - under;
     const totalDeviation = targetRows.reduce((s, r) => s + r.absDrift, 0);
     return { over, under, onTrack, totalDeviation };
   }, [targetRows]);
 
   const rebalanceSuggestions = targetRows
-    .filter(
-      (row) =>
-        Math.abs(row.gapValue) > Math.max(5000, portfolio.totalValue * 0.01),
-    )
+    .filter((row) => isRebalanceSuggestion(row.gapValue, portfolio.totalValue))
     .sort((left, right) => Math.abs(right.gapValue) - Math.abs(left.gapValue))
-    .slice(0, 8);
+    .slice(0, REBALANCE.MAX_SUGGESTIONS);
 
   const buySuggestions = rebalanceSuggestions.filter((r) => r.gapValue > 0);
   const sellSuggestions = rebalanceSuggestions.filter((r) => r.gapValue < 0);
@@ -447,7 +432,7 @@ function App() {
       }));
     }
 
-    return portfolio.holdings.slice(0, 12).map((holding) => ({
+    return portfolio.holdings.slice(0, UI_LIMITS.TREEMAP_TOP_N).map((holding) => ({
       key: holding.id,
       label: holding.ticker,
       value: holding.marketValue,
@@ -457,7 +442,7 @@ function App() {
 
   const waterfallRows = [...nonCashPortfolio]
     .sort((left, right) => Math.abs(right.gainLoss) - Math.abs(left.gainLoss))
-    .slice(0, 10);
+    .slice(0, UI_LIMITS.WATERFALL_TOP_N);
 
   const maxWaterfall =
     waterfallRows.length > 0
@@ -466,7 +451,7 @@ function App() {
 
   const topMovers = [...nonCashPortfolio]
     .sort((left, right) => right.dayChangePct - left.dayChangePct)
-    .slice(0, 6);
+    .slice(0, UI_LIMITS.TOP_MOVERS);
 
   function addManualHolding(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -683,8 +668,11 @@ function App() {
         };
         setHistory((cur) => upsertDailySnapshot(cur, entry, pkDateOf));
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      pushToast(
+        `Price refresh failed: ${err instanceof Error ? err.message : String(err)}`,
+        "error",
+      );
     } finally {
       setFetching(false);
     }
@@ -714,52 +702,30 @@ function App() {
   function importPortfolio(file: File) {
     const reader = new FileReader();
     reader.onload = async () => {
-      let data: Record<string, unknown>;
+      let bundle;
       try {
         const text = String(reader.result);
-        data = JSON.parse(text);
-        if (!data || typeof data !== "object") throw new Error("Not a JSON object");
+        bundle = parseImportBundle(JSON.parse(text));
       } catch (err) {
+        const msg = err instanceof ImportParseError
+          ? err.message
+          : err instanceof Error ? err.message : "Invalid file";
         await confirm({
           title: "Import failed",
-          message: `Could not parse file: ${err instanceof Error ? err.message : "Invalid file"}`,
+          message: `Could not parse file: ${msg}`,
           confirmLabel: "Close",
           cancelLabel: "Close",
         });
         return;
       }
 
-      const incomingHoldings = Array.isArray(data.holdings) ? (data.holdings as Holding[]) : null;
-      const incomingCash =
-        data.cash && typeof data.cash === "object" ? (data.cash as CashBuckets) : null;
-      const incomingTargets = Array.isArray(data.targets) ? (data.targets as TargetAllocation[]) : null;
-      const incomingInvestments = Array.isArray(data.investments)
-        ? (data.investments as InvestmentEntry[])
-        : null;
-      const incomingHistory = Array.isArray(data.history)
-        ? (data.history as PortfolioSnapshot[])
-        : null;
-      const incomingLastFetched =
-        typeof data.lastFetchedAt === "string" ? (data.lastFetchedAt as string) : null;
-
-      const anyData =
-        incomingHoldings ||
-        incomingCash ||
-        incomingTargets ||
-        incomingInvestments ||
-        incomingHistory;
-      if (!anyData) {
-        await confirm({
-          title: "Nothing to import",
-          message: "The file did not contain any recognizable portfolio data.",
-          confirmLabel: "Close",
-          cancelLabel: "Close",
-        });
-        return;
-      }
-
-      const exportedAt =
-        typeof data.exportedAt === "string" ? (data.exportedAt as string) : null;
+      const incomingHoldings = bundle.holdings;
+      const incomingCash = bundle.cash;
+      const incomingTargets = bundle.targets as TargetAllocation[] | null;
+      const incomingInvestments = bundle.investments as InvestmentEntry[] | null;
+      const incomingHistory = bundle.history;
+      const incomingLastFetched = bundle.lastFetchedAt;
+      const exportedAt = bundle.exportedAt;
 
       const ok = await confirm({
         title: "Restore from backup?",
@@ -815,6 +781,7 @@ function App() {
 
   return (
     <main className="app-shell">
+      <ToastViewport />
       <section className="hero-bar">
         <div className="hero-title">
           <p className="eyebrow">PSX portfolio tools</p>
@@ -1184,9 +1151,9 @@ function App() {
               .filter((row) => !targetFilter || row.key.toLowerCase().includes(targetFilter.toLowerCase()))
               .filter((row) => {
                 if (targetStatusFilter === "all") return true;
-                if (targetStatusFilter === "over") return row.drift > 0.005;
-                if (targetStatusFilter === "under") return row.drift < -0.005;
-                return Math.abs(row.drift) <= 0.005;
+                if (targetStatusFilter === "over") return row.drift > DRIFT.COUNT_THRESHOLD;
+                if (targetStatusFilter === "under") return row.drift < -DRIFT.COUNT_THRESHOLD;
+                return Math.abs(row.drift) <= DRIFT.COUNT_THRESHOLD;
               })
               .sort((a, b) => {
                 if (targetSort === "drift") return b.absDrift - a.absDrift;
@@ -1799,204 +1766,6 @@ function Field({
   );
 }
 
-function loadHoldings(): Holding[] {
-  if (typeof window === "undefined") {
-    return sampleHoldings.map(normalizeHolding);
-  }
-
-  const raw = window.localStorage.getItem(storageKey);
-  if (!raw) {
-    return sampleHoldings.map(normalizeHolding);
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Holding[];
-    return Array.isArray(parsed)
-      ? parsed.map(normalizeHolding)
-      : sampleHoldings.map(normalizeHolding);
-  } catch {
-    return sampleHoldings.map(normalizeHolding);
-  }
-}
-
-function loadCashBuckets(): CashBuckets {
-  if (typeof window === "undefined") {
-    return emptyCashBuckets;
-  }
-
-  const raw = window.localStorage.getItem(cashStorageKey);
-  if (!raw) {
-    return emptyCashBuckets;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<CashBuckets>;
-    return {
-      available: Number(parsed.available ?? 0),
-    };
-  } catch {
-    return emptyCashBuckets;
-  }
-}
-
-function loadTargets(): TargetAllocation[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  const raw = window.localStorage.getItem(targetStorageKey);
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as TargetAllocation[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadInvestments(): InvestmentEntry[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  const raw = window.localStorage.getItem(investStorageKey);
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as InvestmentEntry[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadLastFetchedAt(): string | null {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(lastFetchedStorageKey);
-  return raw && raw !== "null" ? raw : null;
-}
-
-function loadHistory(): PortfolioSnapshot[] {
-  if (typeof window === "undefined") return [];
-  const raw = window.localStorage.getItem(historyStorageKey);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as PortfolioSnapshot[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-// PSX trading window ends 15:30 PKT Mon–Thu; Fri ladder ends 16:30. Use 15:30
-// weekday cutoff — daily snapshot only persists once market has closed.
-function pkParts(now: Date) {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Karachi",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    weekday: "short",
-  });
-  const parts = Object.fromEntries(
-    fmt.formatToParts(now).map((p) => [p.type, p.value]),
-  ) as Record<string, string>;
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    hour: Number(parts.hour),
-    minute: Number(parts.minute),
-    weekday: parts.weekday,
-  };
-}
-
-function psxCloseStatus(now: Date = new Date()) {
-  const p = pkParts(now);
-  const isWeekday = !["Sat", "Sun"].includes(p.weekday);
-  const afterClose = p.hour > 15 || (p.hour === 15 && p.minute >= 30);
-  return { isWeekday, afterClose, pkDate: p.date };
-}
-
-function pkDateOf(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
-  return pkParts(d).date;
-}
-
-function normalizeHolding(holding: Holding): Holding {
-  return {
-    ...holding,
-    dayChangePct: Number(holding.dayChangePct ?? 0),
-    dividendPerShare: Number(holding.dividendPerShare ?? 0),
-    payoutDate: holding.payoutDate ?? "",
-  };
-}
-
-function buildHoldingsWithCash(
-  holdings: Holding[],
-  cash: CashBuckets,
-): Holding[] {
-  const nonCash = holdings.filter((holding) => !holding.id.startsWith("cash-"));
-
-  if (cash.available <= 0) return nonCash;
-
-  const cashPosition: Holding = {
-    id: "cash-available",
-    ticker: "CASH",
-    name: "Available Cash",
-    sector: "Cash",
-    account: "PSX",
-    shares: 1,
-    price: cash.available,
-    costBasis: cash.available,
-    dayChangePct: 0,
-    dividendPerShare: 0,
-    payoutDate: "",
-  };
-
-  return [cashPosition, ...nonCash];
-}
-
-function buildSectorBuckets(
-  holdings: { sector: string; marketValue: number; weight: number }[],
-): SectorBucket[] {
-  const map = new Map<string, SectorBucket>();
-
-  for (const holding of holdings) {
-    const current = map.get(holding.sector) ?? {
-      sector: holding.sector,
-      value: 0,
-      weight: 0,
-      holdings: 0,
-    };
-    current.value += holding.marketValue;
-    current.weight += holding.weight;
-    current.holdings += 1;
-    map.set(holding.sector, current);
-  }
-
-  return [...map.values()].sort((left, right) => right.value - left.value);
-}
-
-function getCashDeploymentIdea(cashWeight: number): string {
-  if (cashWeight >= 0.25) {
-    return "Cash is above 25%. Consider deploying into underweight targets gradually.";
-  }
-
-  if (cashWeight >= 0.1) {
-    return "Cash is healthy. Keep watchlist entries ready for pullbacks.";
-  }
-
-  return "Cash is tight. Prioritize trims from overweight targets before new buys.";
-}
-
 function StatCard({
   label,
   value,
@@ -2112,20 +1881,6 @@ function PieChart({
       </div>
     </div>
   );
-}
-
-function getSliceColor(index: number): string {
-  const palette = [
-    "#4cc9f0",
-    "#5eead4",
-    "#f97316",
-    "#facc15",
-    "#a78bfa",
-    "#f472b6",
-    "#38bdf8",
-    "#34d399",
-  ];
-  return palette[index % palette.length];
 }
 
 function Combobox({
@@ -2253,640 +2008,7 @@ function ActionRow({
   );
 }
 
-type HistorySeriesKey = "value" | "cost" | "twr";
 
-const HISTORY_SERIES_META: Record<
-  HistorySeriesKey,
-  { label: string; color: string; dashed?: boolean }
-> = {
-  value: { label: "Market value", color: "#e4ecff" },
-  cost: { label: "Cost basis", color: "#fbbf24", dashed: true },
-  twr: { label: "True return (TWR)", color: "#5eead4" },
-};
-
-function PortfolioHistoryChart({
-  snapshots,
-  lastFetchedIso,
-}: {
-  snapshots: PortfolioSnapshot[];
-  lastFetchedIso?: string | null;
-}) {
-  const [viewMode, setViewMode] = useState<"value" | "twr">("value");
-  const [hiddenSeries, setHiddenSeries] = useState<Set<HistorySeriesKey>>(
-    () => new Set(),
-  );
-
-  const twrIndex = useMemo(() => computeTwrIndex(snapshots), [snapshots]);
-
-  const W = 800;
-  const H = 300;
-  const padL = 78;
-  const padR = 24;
-  const padT = 24;
-  const padB = 48;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
-
-  const visibleKeys = useMemo<HistorySeriesKey[]>(() => {
-    const keys: HistorySeriesKey[] =
-      viewMode === "value" ? ["value", "cost"] : ["twr"];
-    return keys.filter((k) => !hiddenSeries.has(k));
-  }, [viewMode, hiddenSeries]);
-
-  const chart = useMemo(() => {
-    if (snapshots.length < 2) return null;
-
-    const values = snapshots.map((s) => s.totalValue);
-    const costs = snapshots.map((s) => s.totalCost);
-
-    const seriesByKey: Record<HistorySeriesKey, number[]> = {
-      value: values,
-      cost: costs,
-      twr: twrIndex.map((v) => v - 100),
-    };
-
-    const allVisible = visibleKeys.flatMap((k) => seriesByKey[k]);
-    const hi = Math.max(...allVisible);
-    const lo = Math.min(...allVisible, viewMode === "twr" ? 0 : hi);
-    const span = hi - lo || 1;
-    const yHi = hi + span * 0.08;
-    const yLo = viewMode === "twr" ? lo - span * 0.08 : Math.max(0, lo - span * 0.08);
-
-    const xOf = (i: number) =>
-      padL +
-      (snapshots.length === 1
-        ? innerW / 2
-        : (i / (snapshots.length - 1)) * innerW);
-    const yOf = (v: number) =>
-      padT + innerH - ((v - yLo) / (yHi - yLo)) * innerH;
-
-    const pointsByKey: Record<HistorySeriesKey, { x: number; y: number }[]> = {
-      value: values.map((v, i) => ({ x: xOf(i), y: yOf(v) })),
-      cost: costs.map((v, i) => ({ x: xOf(i), y: yOf(v) })),
-      twr: seriesByKey.twr.map((v, i) => ({ x: xOf(i), y: yOf(v) })),
-    };
-
-    const tickValues = niceTicks(yLo, yHi, 5);
-
-    return {
-      seriesByKey,
-      pointsByKey,
-      yLo,
-      yHi,
-      xOf,
-      yOf,
-      tickValues,
-    };
-  }, [snapshots, twrIndex, visibleKeys, viewMode, innerH, innerW]);
-
-  const { containerRef, svgRef, hover, handlers } = useChartHover({
-    pointCount: snapshots.length,
-    plotLeft: padL,
-    plotRight: padR,
-    viewBoxWidth: W,
-  });
-
-  const containerWidth =
-    containerRef.current?.clientWidth ?? 600;
-
-  function toggleSeries(key: HistorySeriesKey) {
-    setHiddenSeries((cur) => {
-      const next = new Set(cur);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  if (snapshots.length < 2 || !chart) {
-    return (
-      <div className="chart-empty">
-        Refresh prices after PSX close (15:30 PKT) on 2+ weekdays to chart value over time.
-      </div>
-    );
-  }
-
-  const labelEvery = Math.max(1, Math.ceil(snapshots.length / 6));
-  const formatY = (v: number): string =>
-    viewMode === "twr" ? formatSignedPercent(v, 1) : formatCompactCurrency(v);
-
-  const hoveredIdx = hover?.index ?? null;
-  const lastSnap = snapshots[snapshots.length - 1];
-  const unrealizedPnl = lastSnap.totalValue - lastSnap.totalCost;
-  const unrealizedPnlPct =
-    lastSnap.totalCost > 0 ? (unrealizedPnl / lastSnap.totalCost) * 100 : 0;
-  const twrCumulative = twrIndex[twrIndex.length - 1] - 100;
-
-  return (
-    <div
-      ref={containerRef}
-      className="line-chart"
-      data-view-mode={viewMode}
-    >
-      <div className="line-chart-header">
-        <div className="line-chart-summary">
-          {viewMode === "value" ? (
-            <>
-              <strong>{formatCurrency(lastSnap.totalValue)}</strong>
-              <span
-                className={unrealizedPnl >= 0 ? "positive" : "negative"}
-                title="Unrealized P&L on current snapshot (cost-basis adjusted, deposit-neutral)"
-              >
-                {unrealizedPnl >= 0 ? "+" : ""}
-                {formatCurrency(unrealizedPnl)} ({formatSignedPercent(unrealizedPnlPct, 2)})
-              </span>
-            </>
-          ) : (
-            <>
-              <strong className={twrCumulative >= 0 ? "positive" : "negative"}>
-                {formatSignedPercent(twrCumulative, 2)}
-              </strong>
-              <span className="muted">deposit-neutral return over {snapshots.length} snapshots</span>
-            </>
-          )}
-        </div>
-        <div className="line-chart-controls">
-          {lastFetchedIso ? (
-            <span
-              className="line-chart-stale"
-              title={formatDateLong(lastFetchedIso)}
-            >
-              Updated {formatRelativeTime(lastFetchedIso)}
-            </span>
-          ) : null}
-          <div className="chip-group">
-            <button
-              type="button"
-              className={`chip ${viewMode === "value" ? "chip--active" : ""}`}
-              onClick={() => setViewMode("value")}
-            >
-              Value
-            </button>
-            <button
-              type="button"
-              className={`chip ${viewMode === "twr" ? "chip--active" : ""}`}
-              onClick={() => setViewMode("twr")}
-            >
-              True return %
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="line-chart-legend">
-        {(viewMode === "value"
-          ? (["value", "cost"] as const)
-          : (["twr"] as const)
-        ).map((key) => {
-          const meta = HISTORY_SERIES_META[key];
-          const hidden = hiddenSeries.has(key);
-          return (
-            <button
-              key={key}
-              type="button"
-              className={`line-chart-legend-item ${hidden ? "line-chart-legend-item--off" : ""}`}
-              onClick={() => toggleSeries(key)}
-              aria-pressed={!hidden}
-            >
-              <span
-                className="line-chart-legend-swatch"
-                style={{
-                  background: meta.dashed ? "transparent" : meta.color,
-                  borderColor: meta.color,
-                  borderStyle: meta.dashed ? "dashed" : "solid",
-                }}
-              />
-              {meta.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="line-chart-svg-wrap">
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${W} ${H}`}
-          className="line-chart-svg"
-          preserveAspectRatio="none"
-          role="img"
-          aria-label="Portfolio history line chart"
-          {...handlers}
-        >
-          {chart.tickValues.map((v, i) => (
-            <g key={`y-${i}`}>
-              <line
-                className="line-chart-grid"
-                x1={padL}
-                x2={W - padR}
-                y1={chart.yOf(v)}
-                y2={chart.yOf(v)}
-              />
-              <text
-                className="line-chart-axis"
-                x={padL - 10}
-                y={chart.yOf(v) + 4}
-                textAnchor="end"
-              >
-                {formatY(v)}
-              </text>
-            </g>
-          ))}
-
-          {viewMode === "twr" ? (
-            <line
-              className="line-chart-zero"
-              x1={padL}
-              x2={W - padR}
-              y1={chart.yOf(0)}
-              y2={chart.yOf(0)}
-            />
-          ) : null}
-
-          {visibleKeys.includes("value") && viewMode === "value" ? (
-            <path
-              className="line-chart-area"
-              d={`${buildCatmullRomPath(chart.pointsByKey.value)} L ${chart.pointsByKey.value[chart.pointsByKey.value.length - 1].x} ${chart.yOf(chart.yLo)} L ${chart.pointsByKey.value[0].x} ${chart.yOf(chart.yLo)} Z`}
-            />
-          ) : null}
-
-          {visibleKeys.map((key) => {
-            const meta = HISTORY_SERIES_META[key];
-            const pts = chart.pointsByKey[key];
-            return (
-              <path
-                key={`line-${key}`}
-                className="line-chart-line"
-                d={buildCatmullRomPath(pts)}
-                stroke={meta.color}
-                strokeDasharray={meta.dashed ? "4 4" : undefined}
-                strokeWidth={key === "value" || key === "twr" ? 2.4 : 1.6}
-              />
-            );
-          })}
-
-          {snapshots.map((s, i) => {
-            if (i % labelEvery !== 0 && i !== snapshots.length - 1) return null;
-            return (
-              <text
-                key={`xl-${i}`}
-                className="line-chart-axis"
-                x={chart.xOf(i)}
-                y={H - padB + 22}
-                textAnchor="middle"
-              >
-                {formatDateShort(s.date)}
-              </text>
-            );
-          })}
-
-          {hoveredIdx !== null ? (
-            <g pointerEvents="none">
-              <line
-                className="line-chart-crosshair"
-                x1={chart.xOf(hoveredIdx)}
-                x2={chart.xOf(hoveredIdx)}
-                y1={padT}
-                y2={H - padB}
-              />
-              {visibleKeys.map((key) => {
-                const meta = HISTORY_SERIES_META[key];
-                const p = chart.pointsByKey[key][hoveredIdx];
-                return (
-                  <circle
-                    key={`hd-${key}`}
-                    className="line-chart-hover-dot"
-                    cx={p.x}
-                    cy={p.y}
-                    r={5}
-                    fill={meta.color}
-                  />
-                );
-              })}
-            </g>
-          ) : null}
-        </svg>
-
-        {hoveredIdx !== null && hover ? (
-          <ChartTooltip
-            x={hover.containerX}
-            y={hover.containerY}
-            containerWidth={containerWidth}
-            title={formatDateLong(snapshots[hoveredIdx].date)}
-            rows={(viewMode === "value"
-              ? ([
-                  {
-                    label: "Market value",
-                    value: formatCurrency(snapshots[hoveredIdx].totalValue),
-                    color: HISTORY_SERIES_META.value.color,
-                  },
-                  {
-                    label: "Cost basis",
-                    value: formatCurrency(snapshots[hoveredIdx].totalCost),
-                    color: HISTORY_SERIES_META.cost.color,
-                  },
-                  {
-                    label: "Unrealized P&L",
-                    value: formatCurrency(snapshots[hoveredIdx].gainLoss),
-                  },
-                ] as const)
-              : ([
-                  {
-                    label: "TWR cumulative",
-                    value: formatSignedPercent(
-                      chart.seriesByKey.twr[hoveredIdx],
-                      2,
-                    ),
-                    color: HISTORY_SERIES_META.twr.color,
-                  },
-                  {
-                    label: "Market value",
-                    value: formatCurrency(snapshots[hoveredIdx].totalValue),
-                  },
-                  {
-                    label: "Cost basis",
-                    value: formatCurrency(snapshots[hoveredIdx].totalCost),
-                  },
-                ] as const)
-            ).map((r) => ({ ...r }))}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-type InvestmentChartRow = {
-  id: string;
-  date: string;
-  label: string;
-  amount: number;
-  total: number;
-  valueEom: number;
-  pnlValue: number;
-  pnlPct: number;
-};
-
-type InvestSeriesKey = "total" | "value";
-const INVEST_SERIES_META: Record<
-  InvestSeriesKey,
-  { label: string; color: string }
-> = {
-  total: { label: "Capital deployed", color: "#5ea5ea" },
-  value: { label: "Portfolio value", color: "#e4ecff" },
-};
-
-function InvestmentChart({ rows }: { rows: InvestmentChartRow[] }) {
-  const [hiddenSeries, setHiddenSeries] = useState<Set<InvestSeriesKey>>(
-    () => new Set(),
-  );
-
-  const W = 800;
-  const H = 320;
-  const padL = 78;
-  const padR = 24;
-  const padT = 24;
-  const padB = 52;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
-
-  const visibleKeys = useMemo<InvestSeriesKey[]>(
-    () => (["total", "value"] as const).filter((k) => !hiddenSeries.has(k)),
-    [hiddenSeries],
-  );
-
-  const chart = useMemo(() => {
-    if (rows.length < 2) return null;
-
-    const totals = rows.map((r) => r.total);
-    const values = rows.map((r) => r.valueEom);
-
-    const seriesByKey: Record<InvestSeriesKey, number[]> = {
-      total: totals,
-      value: values,
-    };
-
-    const visibleSeries = visibleKeys.flatMap((k) => seriesByKey[k]);
-    const hi = Math.max(...visibleSeries, 0);
-    const lo = Math.min(...visibleSeries, 0);
-    const span = hi - lo || 1;
-    const yHi = hi + span * 0.08;
-    const yLo = Math.max(0, lo - span * 0.04);
-
-    const xOf = (i: number) =>
-      padL +
-      (rows.length === 1
-        ? innerW / 2
-        : (i / (rows.length - 1)) * innerW);
-    const yOf = (v: number) =>
-      padT + innerH - ((v - yLo) / (yHi - yLo)) * innerH;
-
-    let stepPath = `M ${xOf(0)} ${yOf(totals[0])}`;
-    for (let i = 1; i < rows.length; i++) {
-      stepPath += ` H ${xOf(i)} V ${yOf(totals[i])}`;
-    }
-    const stepArea = `${stepPath} L ${xOf(rows.length - 1)} ${yOf(yLo)} L ${xOf(0)} ${yOf(yLo)} Z`;
-
-    const valuePoints = values.map((v, i) => ({ x: xOf(i), y: yOf(v) }));
-    const totalPoints = totals.map((v, i) => ({ x: xOf(i), y: yOf(v) }));
-
-    const tickValues = niceTicks(yLo, yHi, 5);
-
-    return {
-      seriesByKey,
-      valuePath: buildCatmullRomPath(valuePoints),
-      stepPath,
-      stepArea,
-      valuePoints,
-      totalPoints,
-      tickValues,
-      yOf,
-      xOf,
-    };
-  }, [rows, visibleKeys, innerH, innerW]);
-
-  const { containerRef, svgRef, hover, handlers } = useChartHover({
-    pointCount: rows.length,
-    plotLeft: padL,
-    plotRight: padR,
-    viewBoxWidth: W,
-  });
-
-  function toggleSeries(key: InvestSeriesKey) {
-    setHiddenSeries((cur) => {
-      const next = new Set(cur);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  if (rows.length < 2 || !chart) {
-    return (
-      <div className="chart-empty">
-        Add at least 2 investment entries to see chart.
-      </div>
-    );
-  }
-
-  const labelEvery = Math.max(1, Math.ceil(rows.length / 6));
-  const hoveredIdx = hover?.index ?? null;
-  const containerWidth = containerRef.current?.clientWidth ?? 600;
-
-  return (
-    <div ref={containerRef} className="line-chart">
-      <div className="line-chart-legend">
-        {(["total", "value"] as const).map((key) => {
-          const meta = INVEST_SERIES_META[key];
-          const hidden = hiddenSeries.has(key);
-          return (
-            <button
-              key={key}
-              type="button"
-              className={`line-chart-legend-item ${hidden ? "line-chart-legend-item--off" : ""}`}
-              onClick={() => toggleSeries(key)}
-              aria-pressed={!hidden}
-            >
-              <span
-                className="line-chart-legend-swatch"
-                style={{ background: meta.color, borderColor: meta.color }}
-              />
-              {meta.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="line-chart-svg-wrap">
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${W} ${H}`}
-          className="line-chart-svg"
-          preserveAspectRatio="none"
-          role="img"
-          aria-label="Investment growth chart"
-          {...handlers}
-        >
-          {chart.tickValues.map((v, i) => (
-            <g key={`y-${i}`}>
-              <line
-                className="line-chart-grid"
-                x1={padL}
-                x2={W - padR}
-                y1={chart.yOf(v)}
-                y2={chart.yOf(v)}
-              />
-              <text
-                className="line-chart-axis"
-                x={padL - 10}
-                y={chart.yOf(v) + 4}
-                textAnchor="end"
-              >
-                {formatCompactCurrency(v)}
-              </text>
-            </g>
-          ))}
-
-          {visibleKeys.includes("total") ? (
-            <>
-              <path className="line-chart-step-fill" d={chart.stepArea} />
-              <path
-                className="line-chart-step"
-                d={chart.stepPath}
-                stroke={INVEST_SERIES_META.total.color}
-              />
-            </>
-          ) : null}
-
-          {visibleKeys.includes("value") ? (
-            <path
-              className="line-chart-line"
-              d={chart.valuePath}
-              stroke={INVEST_SERIES_META.value.color}
-              strokeWidth={2.4}
-            />
-          ) : null}
-
-          {rows.map((r, i) => {
-            if (i % labelEvery !== 0 && i !== rows.length - 1) return null;
-            return (
-              <text
-                key={`xl-${r.id}`}
-                className="line-chart-axis"
-                x={chart.xOf(i)}
-                y={H - padB + 22}
-                textAnchor="middle"
-              >
-                {formatDateShort(r.date)}
-              </text>
-            );
-          })}
-
-          {hoveredIdx !== null ? (
-            <g pointerEvents="none">
-              <line
-                className="line-chart-crosshair"
-                x1={chart.xOf(hoveredIdx)}
-                x2={chart.xOf(hoveredIdx)}
-                y1={padT}
-                y2={H - padB}
-              />
-              {visibleKeys.includes("total") ? (
-                <circle
-                  className="line-chart-hover-dot"
-                  cx={chart.totalPoints[hoveredIdx].x}
-                  cy={chart.totalPoints[hoveredIdx].y}
-                  r={5}
-                  fill={INVEST_SERIES_META.total.color}
-                />
-              ) : null}
-              {visibleKeys.includes("value") ? (
-                <circle
-                  className="line-chart-hover-dot"
-                  cx={chart.valuePoints[hoveredIdx].x}
-                  cy={chart.valuePoints[hoveredIdx].y}
-                  r={5}
-                  fill={INVEST_SERIES_META.value.color}
-                />
-              ) : null}
-            </g>
-          ) : null}
-        </svg>
-
-        {hoveredIdx !== null && hover ? (
-          <ChartTooltip
-            x={hover.containerX}
-            y={hover.containerY}
-            containerWidth={containerWidth}
-            title={`${formatDateLong(rows[hoveredIdx].date)} · ${rows[hoveredIdx].label}`}
-            rows={[
-              {
-                label: "Capital deployed",
-                value: formatCurrency(rows[hoveredIdx].total),
-                color: INVEST_SERIES_META.total.color,
-              },
-              {
-                label: "Portfolio value",
-                value: formatCurrency(rows[hoveredIdx].valueEom),
-                color: INVEST_SERIES_META.value.color,
-              },
-              {
-                label: "P&L",
-                value: `${rows[hoveredIdx].pnlValue >= 0 ? "+" : ""}${formatCurrency(rows[hoveredIdx].pnlValue)} (${formatSignedPercent(rows[hoveredIdx].pnlPct, 2)})`,
-              },
-              {
-                label: "Entry amount",
-                value:
-                  rows[hoveredIdx].amount === 0
-                    ? "—"
-                    : `${rows[hoveredIdx].amount > 0 ? "+" : ""}${formatCurrency(rows[hoveredIdx].amount)}`,
-              },
-            ]}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
-}
 
 function RankedAllocation({
   items,
@@ -2924,92 +2046,6 @@ function RankedAllocation({
   );
 }
 
-function Treemap({
-  items,
-}: {
-  items: { key: string; label: string; value: number; weight: number }[];
-}) {
-  if (items.length === 0) {
-    return <div className="chart-empty">No data</div>;
-  }
-
-  const totalWeight = items.reduce((s, i) => s + i.weight, 0);
-
-  // Squarified layout: split into rows, aiming for aspect ratios close to 1
-  const rows: typeof items[] = [];
-  let remaining = [...items];
-  let remainingWeight = totalWeight;
-
-  while (remaining.length > 0) {
-    let best = 1;
-    let bestRatio = Infinity;
-
-    for (let count = 1; count <= remaining.length; count++) {
-      const slice = remaining.slice(0, count);
-      const sliceWeight = slice.reduce((s, i) => s + i.weight, 0);
-      const rowFraction = sliceWeight / totalWeight;
-      const worstRatio = Math.max(
-        ...slice.map((i) => {
-          const w = i.weight / sliceWeight;
-          const aspect = rowFraction > 0 ? (w / rowFraction) : 1;
-          return Math.max(aspect, 1 / (aspect || 1));
-        }),
-      );
-      if (worstRatio <= bestRatio) {
-        bestRatio = worstRatio;
-        best = count;
-      } else {
-        break;
-      }
-    }
-
-    rows.push(remaining.slice(0, best));
-    const usedWeight = remaining.slice(0, best).reduce((s, i) => s + i.weight, 0);
-    remainingWeight -= usedWeight;
-    remaining = remaining.slice(best);
-  }
-
-  let colorIdx = 0;
-
-  return (
-    <div className="treemap-container">
-      <div className="treemap-grid">
-        {rows.map((row, ri) => {
-          const rowWeight = row.reduce((s, r) => s + r.weight, 0);
-          return (
-            <div
-              key={ri}
-              className="treemap-row"
-              style={{ flexGrow: rowWeight, flexShrink: 1, flexBasis: 0 }}
-            >
-              {row.map((item) => {
-                const ci = colorIdx++;
-                const widthPct = (item.weight / rowWeight) * 100;
-                return (
-                  <div
-                    key={item.key}
-                    className="treemap-block"
-                    style={
-                      {
-                        "--tree-color": getSliceColor(ci),
-                        width: `${widthPct}%`,
-                      } as React.CSSProperties
-                    }
-                    title={`${item.label}: ${formatCurrency(item.value)} (${formatPercent(item.weight)})`}
-                  >
-                    <strong>{item.label}</strong>
-                    <span>{formatPercent(item.weight)}</span>
-                    <small>{formatCurrency(item.value)}</small>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 type PsxStock = { ticker: string; name: string; sector: string };
 

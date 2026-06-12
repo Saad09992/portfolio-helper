@@ -1,5 +1,5 @@
 import type { Holding, Payout } from "../types";
-import { apiUrl } from "./api-url";
+import { apiFetch } from "./api-url";
 
 export type MarketQuote = {
   ticker: string;
@@ -17,8 +17,8 @@ type DividendInfo = {
 export async function fetchMarketData(tickers: string[]): Promise<MarketQuote[]> {
   if (tickers.length === 0) return [];
 
-  const response = await fetch(
-    apiUrl(`/api/psx/market-data?tickers=${tickers.join(",")}`),
+  const response = await apiFetch(
+    `/api/psx/market-data?tickers=${tickers.join(",")}`,
   );
 
   if (!response.ok) {
@@ -41,13 +41,18 @@ export async function fetchMarketData(tickers: string[]): Promise<MarketQuote[]>
 export async function fetchDividends(tickers: string[]): Promise<DividendInfo[]> {
   if (tickers.length === 0) return [];
 
-  const response = await fetch(
-    apiUrl(`/api/psx/dividends?tickers=${tickers.join(",")}`),
+  const response = await apiFetch(
+    `/api/psx/dividends?tickers=${tickers.join(",")}`,
   );
 
-  if (!response.ok) return [];
+  if (!response.ok) {
+    throw new Error(`Dividends API returned ${response.status}`);
+  }
 
   const data = await response.json();
+  if (data && typeof data === "object" && "error" in data && data.error) {
+    throw new Error(String(data.error));
+  }
   return Array.isArray(data) ? data : [];
 }
 

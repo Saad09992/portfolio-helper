@@ -25,3 +25,29 @@ export type DerivedHolding = Holding & {
   gainLoss: number;
   weight: number;
 };
+
+export type SectorBucket = {
+  sector: string;
+  value: number;
+  weight: number;
+  holdings: number;
+};
+
+export type CashBuckets = {
+  available: number;
+};
+
+export type TargetAllocation = {
+  id: string;
+  mode: "sector" | "ticker";
+  key: string;
+  targetWeight: number;
+};
+
+export type InvestmentEntry = {
+  id: string;
+  date: string;
+  label: string;
+  amount: number;
+  valueEom: number;
+};

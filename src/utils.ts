@@ -1,4 +1,5 @@
 import type { DerivedHolding, Holding } from "./types";
+import { HISTORY } from "./constants";
 
 export const storageKey = "psx-portfolio-tools:v1";
 
@@ -232,7 +233,7 @@ export function upsertDailySnapshot(
   history: PortfolioSnapshot[],
   entry: PortfolioSnapshot,
   pkDateOf: (iso: string) => string,
-  maxLen = 365,
+  maxLen = HISTORY.MAX_DAYS,
 ): PortfolioSnapshot[] {
   const key = pkDateOf(entry.date);
   const idx = history.findIndex((s) => pkDateOf(s.date) === key);

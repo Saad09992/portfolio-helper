@@ -5,6 +5,8 @@ services:
       args:
         # set to /psx/ if mounting under Caddy's handle_path /psx/*
         BASE_PATH: /psx/
+        # baked into the frontend bundle so apiFetch can send it
+        VITE_PSX_API_TOKEN: ${PSX_API_TOKEN:-}
     image: psx-portfolio:latest
     container_name: psx
     restart: unless-stopped
@@ -13,6 +15,7 @@ services:
       PORT: "3000"
       HOST: "0.0.0.0"
       DATA_DIR: /data
+      PSX_API_TOKEN: ${PSX_API_TOKEN:-}
     ports:
       - "127.0.0.1:3000:3000"
     volumes:

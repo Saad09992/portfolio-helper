@@ -1,4 +1,6 @@
-import { apiUrl } from "./api-url";
+import { apiFetch } from "./api-url";
+import { PERSISTENCE } from "../constants";
+import { pushToast } from "../hooks/useToast";
 
 export type PortfolioFile = {
   holdings?: unknown;
@@ -12,11 +14,15 @@ export type PortfolioFile = {
 
 export async function loadPortfolioFromDisk(): Promise<PortfolioFile | null> {
   try {
-    const res = await fetch(apiUrl("/api/portfolio/load"));
-    if (!res.ok) return null;
+    const res = await apiFetch("/api/portfolio/load");
+    if (!res.ok) {
+      pushToast(`Disk load failed: HTTP ${res.status}`, "warn");
+      return null;
+    }
     const data = (await res.json()) as PortfolioFile | null;
     return data ?? null;
-  } catch {
+  } catch (err) {
+    pushToast(`Disk load failed: ${err instanceof Error ? err.message : String(err)}`, "warn");
     return null;
   }
 }
@@ -24,7 +30,7 @@ export async function loadPortfolioFromDisk(): Promise<PortfolioFile | null> {
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let pending: PortfolioFile | null = null;
 
-export function savePortfolioToDisk(state: PortfolioFile, debounceMs = 500) {
+export function savePortfolioToDisk(state: PortfolioFile, debounceMs = PERSISTENCE.SAVE_DEBOUNCE_MS) {
   pending = state;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
@@ -32,13 +38,19 @@ export function savePortfolioToDisk(state: PortfolioFile, debounceMs = 500) {
     pending = null;
     if (!body) return;
     try {
-      await fetch(apiUrl("/api/portfolio/save"), {
+      const res = await apiFetch("/api/portfolio/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...body, savedAt: new Date().toISOString() }),
       });
-    } catch {
-      // ignore — localStorage still has it
+      if (!res.ok) {
+        pushToast(`Disk save failed: HTTP ${res.status} (kept in browser)`, "warn");
+      }
+    } catch (err) {
+      pushToast(
+        `Disk save failed: ${err instanceof Error ? err.message : String(err)} (kept in browser)`,
+        "warn",
+      );
     }
   }, debounceMs);
 }

@@ -20,6 +20,8 @@ COPY scripts ./scripts
 
 ARG BASE_PATH=/
 ENV BASE_PATH=$BASE_PATH
+ARG VITE_PSX_API_TOKEN=
+ENV VITE_PSX_API_TOKEN=$VITE_PSX_API_TOKEN
 RUN npm run build
 RUN npm prune --omit=dev
 

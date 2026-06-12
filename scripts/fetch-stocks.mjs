@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { mkdirSync } from "fs";
+import { runMigrations } from "../server/migrations.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR
@@ -74,21 +75,7 @@ async function main() {
   mkdirSync(DATA_DIR, { recursive: true });
   const db = new Database(DB_PATH);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sectors (
-      code TEXT PRIMARY KEY,
-      name TEXT NOT NULL
-    )
-  `);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS stocks (
-      ticker TEXT PRIMARY KEY,
-      name   TEXT NOT NULL,
-      sector TEXT NOT NULL,
-      FOREIGN KEY (sector) REFERENCES sectors(code)
-    )
-  `);
+  runMigrations(db);
 
   db.exec("DELETE FROM stocks");
   db.exec("DELETE FROM sectors");

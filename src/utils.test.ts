@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  computePortfolio,
   computeTwrIndex,
   formatCompactCurrency,
   formatDateShort,
@@ -8,6 +9,69 @@ import {
   upsertDailySnapshot,
   xirr,
 } from "./utils";
+import type { Holding } from "./types";
+
+function holding(over: Partial<Holding>): Holding {
+  return {
+    id: "h",
+    ticker: "X",
+    name: "X",
+    sector: "Misc",
+    account: "PSX",
+    shares: 0,
+    price: 0,
+    costBasis: 0,
+    dayChangePct: 0,
+    dividendPerShare: 0,
+    payoutDate: "",
+    ...over,
+  };
+}
+
+describe("computePortfolio", () => {
+  it("returns zeros for empty input", () => {
+    const r = computePortfolio([]);
+    expect(r.holdings).toEqual([]);
+    expect(r.totalValue).toBe(0);
+    expect(r.totalCost).toBe(0);
+    expect(r.totalGainLoss).toBe(0);
+  });
+
+  it("computes marketValue, costValue, gainLoss for a single holding", () => {
+    const r = computePortfolio([holding({ shares: 100, price: 150, costBasis: 120 })]);
+    expect(r.holdings[0].marketValue).toBe(15_000);
+    expect(r.holdings[0].costValue).toBe(12_000);
+    expect(r.holdings[0].gainLoss).toBe(3_000);
+    expect(r.holdings[0].weight).toBeCloseTo(1, 6);
+    expect(r.totalGainLoss).toBe(3_000);
+  });
+
+  it("yields weight=0 for all when totalValue is 0 (no divide-by-zero)", () => {
+    const r = computePortfolio([
+      holding({ id: "a", shares: 0, price: 100, costBasis: 50 }),
+      holding({ id: "b", shares: 0, price: 200, costBasis: 100 }),
+    ]);
+    expect(r.totalValue).toBe(0);
+    expect(r.holdings.every((h) => h.weight === 0)).toBe(true);
+    for (const h of r.holdings) expect(Number.isFinite(h.weight)).toBe(true);
+  });
+
+  it("weights sum to ~1 across multiple holdings", () => {
+    const r = computePortfolio([
+      holding({ id: "a", shares: 10, price: 100, costBasis: 90 }),
+      holding({ id: "b", shares: 20, price: 50, costBasis: 60 }),
+      holding({ id: "c", shares: 5, price: 200, costBasis: 200 }),
+    ]);
+    const sum = r.holdings.reduce((s, h) => s + h.weight, 0);
+    expect(sum).toBeCloseTo(1, 6);
+  });
+
+  it("returns a negative totalGainLoss when price < costBasis", () => {
+    const r = computePortfolio([holding({ shares: 100, price: 80, costBasis: 120 })]);
+    expect(r.totalGainLoss).toBe(-4_000);
+    expect(r.holdings[0].gainLoss).toBe(-4_000);
+  });
+});
 
 describe("computeTwrIndex", () => {
   it("returns flat index when no value changes", () => {

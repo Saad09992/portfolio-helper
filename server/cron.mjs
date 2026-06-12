@@ -158,11 +158,19 @@ export async function runDailySync({
   const totals = computeTotals(updatedHoldings, cashAvailable);
 
   const nowIso = new Date().toISOString();
+  const shares = {};
+  for (const h of updatedHoldings) {
+    if (String(h.id ?? "").startsWith("cash-")) continue;
+    const ticker = String(h.ticker ?? "").toUpperCase();
+    if (!ticker) continue;
+    shares[ticker] = Number(h.shares) || 0;
+  }
   const entry = {
     date: nowIso,
     totalValue: totals.totalValue,
     totalCost: totals.totalCost,
     gainLoss: totals.totalGainLoss,
+    shares,
   };
 
   const history = upsertDailySnapshot(

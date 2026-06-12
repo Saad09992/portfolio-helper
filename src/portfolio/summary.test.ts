@@ -113,7 +113,7 @@ describe("buildPortfolioSummary — depth gating", () => {
       drift: 0.1,
       absDrift: 0.1,
       gapValue: -10000,
-      status: "moderate",
+      status: "warn",
     },
   ];
   const history: PortfolioSnapshot[] = [

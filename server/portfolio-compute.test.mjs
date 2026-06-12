@@ -111,6 +111,30 @@ describe("upsertDailySnapshot", () => {
     );
     expect(next).not.toBe(hist);
   });
+
+  it("preserves the shares dict on replacement", () => {
+    const hist = [
+      {
+        date: "2026-06-09T11:00:00Z",
+        totalValue: 1,
+        totalCost: 1,
+        gainLoss: 0,
+        shares: { OGDC: 100 },
+      },
+    ];
+    const next = upsertDailySnapshot(
+      hist,
+      {
+        date: "2026-06-09T15:35:00Z",
+        totalValue: 7,
+        totalCost: 4,
+        gainLoss: 3,
+        shares: { OGDC: 105, PVOT: 20 },
+      },
+      sameDay,
+    );
+    expect(next[0].shares).toEqual({ OGDC: 105, PVOT: 20 });
+  });
 });
 
 describe("pkParts / psxCloseStatus / pkDateOf", () => {

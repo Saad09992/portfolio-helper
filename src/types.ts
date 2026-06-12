@@ -37,11 +37,17 @@ export type CashBuckets = {
   available: number;
 };
 
+export type RebalanceCadence = "weekly" | "monthly" | "quarterly" | "yearly";
+
 export type TargetAllocation = {
   id: string;
   mode: "sector" | "ticker";
   key: string;
   targetWeight: number;
+  warnThreshold?: number;
+  criticalThreshold?: number;
+  cadence?: RebalanceCadence;
+  lastRebalancedAt?: string | null;
 };
 
 export type InvestmentEntry = {

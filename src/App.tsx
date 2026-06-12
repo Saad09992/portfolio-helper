@@ -3,6 +3,7 @@ import type {
   CashBuckets,
   Holding,
   InvestmentEntry,
+  RebalanceCadence,
   TargetAllocation,
 } from "./types";
 import {
@@ -24,10 +25,15 @@ import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchDividends, fetchMarketData } from "./services/psx-scraper";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
 import { apiUrl } from "./services/api-url";
-import { DRIFT, REBALANCE, UI_LIMITS } from "./constants";
+import { DRIFT, REBALANCE, TARGET_DEFAULTS, UI_LIMITS } from "./constants";
 import { ToastViewport } from "./components/Toast";
 import { pushToast } from "./hooks/useToast";
-import { driftStatus, isRebalanceSuggestion } from "./portfolio/rebalance";
+import {
+  type CadenceState,
+  cadenceState,
+  driftStatusFor,
+  isRebalanceSuggestion,
+} from "./portfolio/rebalance";
 import { ImportParseError, parseImportBundle } from "./portfolio/importExport";
 import { pkDateOf, psxCloseStatus } from "./portfolio/calendar";
 import {
@@ -47,6 +53,7 @@ import {
   loadInvestments,
   loadLastFetchedAt,
   loadTargets,
+  normalizeTarget,
   targetStorageKey,
 } from "./portfolio/storage";
 import { PortfolioHistoryChart } from "./components/charts/PortfolioHistoryChart";
@@ -64,6 +71,9 @@ type DraftTarget = {
   mode: "sector" | "ticker";
   key: string;
   targetWeightPct: number;
+  warnPct: number;
+  criticalPct: number;
+  cadence: RebalanceCadence;
 };
 
 type DraftInvestment = {
@@ -103,6 +113,9 @@ const emptyTargetDraft: DraftTarget = {
   mode: "sector",
   key: "",
   targetWeightPct: 0,
+  warnPct: TARGET_DEFAULTS.WARN_THRESHOLD * 100,
+  criticalPct: TARGET_DEFAULTS.CRITICAL_THRESHOLD * 100,
+  cadence: TARGET_DEFAULTS.CADENCE,
 };
 
 const emptyInvestmentDraft: DraftInvestment = {
@@ -119,7 +132,7 @@ function App() {
   const [targets, setTargets] = useState<TargetAllocation[]>(() => loadTargets());
   const [targetDraft, setTargetDraft] = useState<DraftTarget>(emptyTargetDraft);
   const [targetFilter, setTargetFilter] = useState("");
-  const [targetStatusFilter, setTargetStatusFilter] = useState<"all" | "over" | "under" | "ontrack">("all");
+  const [targetStatusFilter, setTargetStatusFilter] = useState<"all" | "over" | "under" | "ontrack" | "due">("all");
   const [targetSort, setTargetSort] = useState<"drift" | "name" | "weight">("drift");
   const [treemapMode, setTreemapMode] = useState<"sector" | "ticker">("sector");
   const [allocationView, setAllocationView] = useState<"map" | "ranked">("map");
@@ -183,7 +196,7 @@ function App() {
       }
       if (Array.isArray(data.holdings)) setHoldings(data.holdings as Holding[]);
       if (data.cash && typeof data.cash === "object") setCashDraft(data.cash as CashBuckets);
-      if (Array.isArray(data.targets)) setTargets(data.targets as TargetAllocation[]);
+      if (Array.isArray(data.targets)) setTargets((data.targets as TargetAllocation[]).map(normalizeTarget));
       if (Array.isArray(data.investments)) setInvestments(data.investments as InvestmentEntry[]);
       if (Array.isArray(data.history)) setHistory(data.history as PortfolioSnapshot[]);
       if (typeof data.lastFetchedAt === "string") setLastFetchedAt(data.lastFetchedAt);
@@ -289,18 +302,26 @@ function App() {
     return map;
   }, [portfolio.holdings]);
 
+  const nowDate = new Date();
   const targetRows = targets.map((target) => {
     const lookup = target.mode === "sector" ? sectorWeightMap : tickerWeightMap;
     const currentWeight = lookup.get(target.key.toLowerCase()) ?? 0;
     const drift = currentWeight - target.targetWeight;
     const gapValue = (target.targetWeight - currentWeight) * portfolio.totalValue;
     const absDrift = Math.abs(drift);
-    const status: "severe" | "moderate" | "ontrack" = driftStatus(absDrift);
+    const warn = target.warnThreshold ?? TARGET_DEFAULTS.WARN_THRESHOLD;
+    const critical = target.criticalThreshold ?? TARGET_DEFAULTS.CRITICAL_THRESHOLD;
+    const cadence = target.cadence ?? TARGET_DEFAULTS.CADENCE;
+    const status = driftStatusFor(absDrift, warn, critical);
     const price = target.mode === "ticker" ? tickerPriceMap.get(target.key.toLowerCase()) ?? 0 : 0;
     const shares = price > 0 ? Math.abs(gapValue) / price : 0;
+    const cad = cadenceState(target.lastRebalancedAt ?? null, cadence, nowDate);
 
     return {
       ...target,
+      warnThreshold: warn,
+      criticalThreshold: critical,
+      cadence,
       currentWeight,
       drift,
       gapValue,
@@ -308,6 +329,8 @@ function App() {
       status,
       price,
       shares,
+      cadenceState: cad.state,
+      daysUntilDue: cad.daysUntilDue,
     };
   });
 
@@ -315,17 +338,82 @@ function App() {
     const over = targetRows.filter((r) => r.drift > DRIFT.COUNT_THRESHOLD).length;
     const under = targetRows.filter((r) => r.drift < -DRIFT.COUNT_THRESHOLD).length;
     const onTrack = targetRows.length - over - under;
+    const due = targetRows.filter(
+      (r) => r.cadenceState === "due" || r.cadenceState === "overdue",
+    ).length;
     const totalDeviation = targetRows.reduce((s, r) => s + r.absDrift, 0);
-    return { over, under, onTrack, totalDeviation };
+    return { over, under, onTrack, due, totalDeviation };
   }, [targetRows]);
 
   const rebalanceSuggestions = targetRows
-    .filter((row) => isRebalanceSuggestion(row.gapValue, portfolio.totalValue))
+    .filter((row) => {
+      const cadenceOverride = row.cadenceState === "due" || row.cadenceState === "overdue";
+      return isRebalanceSuggestion(row.gapValue, portfolio.totalValue, cadenceOverride);
+    })
     .sort((left, right) => Math.abs(right.gapValue) - Math.abs(left.gapValue))
     .slice(0, REBALANCE.MAX_SUGGESTIONS);
 
   const buySuggestions = rebalanceSuggestions.filter((r) => r.gapValue > 0);
   const sellSuggestions = rebalanceSuggestions.filter((r) => r.gapValue < 0);
+
+  const sectorByTicker = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const h of portfolio.holdings) {
+      if (h.id.startsWith("cash-")) continue;
+      map.set(h.ticker.toUpperCase(), h.sector);
+    }
+    return map;
+  }, [portfolio.holdings]);
+
+  useEffect(() => {
+    const snapsWithShares = history.filter((s) => s.shares && Object.keys(s.shares).length > 0);
+    if (snapsWithShares.length < 2) return;
+    const sorted = [...snapsWithShares].sort((a, b) => a.date.localeCompare(b.date));
+    const newest = sorted[sorted.length - 1];
+    const prev = sorted[sorted.length - 2];
+    if (!newest.shares || !prev.shares) return;
+
+    const changedTickers = new Set<string>();
+    const allKeys = new Set([
+      ...Object.keys(newest.shares),
+      ...Object.keys(prev.shares),
+    ]);
+    for (const ticker of allKeys) {
+      const a = prev.shares[ticker] ?? 0;
+      const b = newest.shares[ticker] ?? 0;
+      if (a === 0 && b === 0) continue;
+      const denom = Math.max(Math.abs(a), Math.abs(b), 1);
+      const delta = Math.abs(b - a) / denom;
+      if (delta >= 0.01) changedTickers.add(ticker);
+    }
+    if (changedTickers.size === 0) return;
+
+    const changedSectors = new Set<string>();
+    for (const ticker of changedTickers) {
+      const sector = sectorByTicker.get(ticker);
+      if (sector) changedSectors.add(sector.toLowerCase());
+    }
+
+    const newestDate = newest.date;
+    let dirty = false;
+    const next = targets.map((t) => {
+      const last = t.lastRebalancedAt;
+      if (last && last >= newestDate) return t;
+      if (t.mode === "ticker") {
+        if (changedTickers.has(t.key.toUpperCase())) {
+          dirty = true;
+          return { ...t, lastRebalancedAt: newestDate };
+        }
+      } else {
+        if (changedSectors.has(t.key.toLowerCase())) {
+          dirty = true;
+          return { ...t, lastRebalancedAt: newestDate };
+        }
+      }
+      return t;
+    });
+    if (dirty) setTargets(next);
+  }, [history, targets, sectorByTicker]);
 
   const investmentRows = useMemo(() => {
     const sorted = [...investments].sort((a, b) => a.date.localeCompare(b.date));
@@ -576,6 +664,16 @@ function App() {
       return;
     }
 
+    if (targetDraft.warnPct <= 0 || targetDraft.criticalPct <= 0) {
+      setTargetError("Warn and critical thresholds must be positive.");
+      return;
+    }
+
+    if (targetDraft.criticalPct <= targetDraft.warnPct) {
+      setTargetError("Critical threshold must be greater than warn threshold.");
+      return;
+    }
+
     const normalizedKey =
       targetDraft.mode === "ticker" ? key.toUpperCase() : key;
 
@@ -585,6 +683,10 @@ function App() {
         mode: targetDraft.mode,
         key: normalizedKey,
         targetWeight: targetDraft.targetWeightPct / 100,
+        warnThreshold: targetDraft.warnPct / 100,
+        criticalThreshold: targetDraft.criticalPct / 100,
+        cadence: targetDraft.cadence,
+        lastRebalancedAt: null,
       },
       ...current,
     ]);
@@ -608,6 +710,40 @@ function App() {
     });
     if (!ok) return;
     setTargets((current) => current.filter((t) => t.id !== id));
+  }
+
+  function updateTargetThreshold(
+    id: string,
+    field: "warnThreshold" | "criticalThreshold",
+    valuePct: number,
+  ) {
+    if (!Number.isFinite(valuePct) || valuePct <= 0) return;
+    setTargets((current) =>
+      current.map((t) => {
+        if (t.id !== id) return t;
+        const decimal = valuePct / 100;
+        const warn = field === "warnThreshold" ? decimal : t.warnThreshold ?? TARGET_DEFAULTS.WARN_THRESHOLD;
+        const critical = field === "criticalThreshold" ? decimal : t.criticalThreshold ?? TARGET_DEFAULTS.CRITICAL_THRESHOLD;
+        if (critical <= warn) {
+          pushToast("Critical threshold must be greater than warn threshold.", "error");
+          return t;
+        }
+        return { ...t, [field]: decimal };
+      }),
+    );
+  }
+
+  function updateTargetCadence(id: string, cadence: RebalanceCadence) {
+    setTargets((current) =>
+      current.map((t) => (t.id === id ? { ...t, cadence } : t)),
+    );
+  }
+
+  function markTargetRebalanced(id: string) {
+    const now = new Date().toISOString();
+    setTargets((current) =>
+      current.map((t) => (t.id === id ? { ...t, lastRebalancedAt: now } : t)),
+    );
   }
 
   function addInvestment(event: React.FormEvent<HTMLFormElement>) {
@@ -721,11 +857,16 @@ function App() {
       const snapshot = computePortfolio(buildHoldingsWithCash(updated, cashDraft));
       const { isWeekday, afterClose } = psxCloseStatus();
       if (isWeekday && afterClose) {
-        const entry = {
+        const shares: Record<string, number> = {};
+        for (const h of updated) {
+          if (!h.id.startsWith("cash-")) shares[h.ticker.toUpperCase()] = h.shares;
+        }
+        const entry: PortfolioSnapshot = {
           date: new Date().toISOString(),
           totalValue: snapshot.totalValue,
           totalCost: snapshot.totalCost,
           gainLoss: snapshot.totalGainLoss,
+          shares,
         };
         setHistory((cur) => upsertDailySnapshot(cur, entry, pkDateOf));
       }
@@ -832,7 +973,7 @@ function App() {
 
       if (incomingHoldings) setHoldings(incomingHoldings.map(normalizeHolding));
       if (incomingCash) setCashDraft({ available: Number(incomingCash.available ?? 0) });
-      if (incomingTargets) setTargets(incomingTargets);
+      if (incomingTargets) setTargets(incomingTargets.map(normalizeTarget));
       if (incomingInvestments) setInvestments(incomingInvestments);
       if (incomingHistory) setHistory(incomingHistory);
       if (incomingLastFetched) setLastFetchedAt(incomingLastFetched);
@@ -1107,47 +1248,109 @@ function App() {
           </div>
 
           <form className="target-form" onSubmit={addTargetAllocation}>
-            <select
-              value={targetDraft.mode}
-              onChange={(event) =>
-                setTargetDraft((current) => ({
-                  ...current,
-                  mode: event.target.value as "sector" | "ticker",
-                  key: "",
-                }))
-              }
-            >
-              <option value="sector">Sector</option>
-              <option value="ticker">Ticker</option>
-            </select>
-            <Combobox
-              value={targetDraft.key}
-              onChange={(val) =>
-                setTargetDraft((current) => ({ ...current, key: val }))
-              }
-              options={
-                targetDraft.mode === "sector"
-                  ? sectors.map((s) => s.sector)
-                  : portfolio.holdings.map((h) => h.ticker)
-              }
-              placeholder={targetDraft.mode === "sector" ? "Search sector..." : "Search ticker..."}
-            />
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="0.1"
-              value={targetDraft.targetWeightPct}
-              onChange={(event) =>
-                setTargetDraft((current) => ({
-                  ...current,
-                  targetWeightPct: Number(event.target.value),
-                }))
-              }
-              placeholder="Weight %"
-            />
-            <button type="submit" className="button">
-              Add
+            <label className="target-form-field">
+              <span className="target-form-label">Mode</span>
+              <select
+                value={targetDraft.mode}
+                onChange={(event) =>
+                  setTargetDraft((current) => ({
+                    ...current,
+                    mode: event.target.value as "sector" | "ticker",
+                    key: "",
+                  }))
+                }
+              >
+                <option value="sector">Sector</option>
+                <option value="ticker">Ticker</option>
+              </select>
+            </label>
+            <label className="target-form-field target-form-field--grow">
+              <span className="target-form-label">
+                {targetDraft.mode === "sector" ? "Sector" : "Ticker"}
+              </span>
+              <Combobox
+                value={targetDraft.key}
+                onChange={(val) =>
+                  setTargetDraft((current) => ({ ...current, key: val }))
+                }
+                options={
+                  targetDraft.mode === "sector"
+                    ? sectors.map((s) => s.sector)
+                    : portfolio.holdings.map((h) => h.ticker)
+                }
+                placeholder={targetDraft.mode === "sector" ? "Search sector..." : "Search ticker..."}
+              />
+            </label>
+            <label className="target-form-field">
+              <span className="target-form-label">Target %</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.1"
+                value={targetDraft.targetWeightPct}
+                onChange={(event) =>
+                  setTargetDraft((current) => ({
+                    ...current,
+                    targetWeightPct: Number(event.target.value),
+                  }))
+                }
+                placeholder="e.g. 35"
+              />
+            </label>
+            <label className="target-form-field" title="Warn threshold — card turns yellow when |drift| crosses this">
+              <span className="target-form-label">Warn %</span>
+              <input
+                type="number"
+                min={0.1}
+                max={100}
+                step="0.1"
+                value={targetDraft.warnPct}
+                onChange={(event) =>
+                  setTargetDraft((current) => ({
+                    ...current,
+                    warnPct: Number(event.target.value),
+                  }))
+                }
+                placeholder="e.g. 5"
+              />
+            </label>
+            <label className="target-form-field" title="Critical threshold — card turns red; trim/expand required">
+              <span className="target-form-label">Critical %</span>
+              <input
+                type="number"
+                min={0.1}
+                max={100}
+                step="0.1"
+                value={targetDraft.criticalPct}
+                onChange={(event) =>
+                  setTargetDraft((current) => ({
+                    ...current,
+                    criticalPct: Number(event.target.value),
+                  }))
+                }
+                placeholder="e.g. 10"
+              />
+            </label>
+            <label className="target-form-field" title="How often this position should be rebalanced">
+              <span className="target-form-label">Cadence</span>
+              <select
+                value={targetDraft.cadence}
+                onChange={(event) =>
+                  setTargetDraft((current) => ({
+                    ...current,
+                    cadence: event.target.value as RebalanceCadence,
+                  }))
+                }
+              >
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </label>
+            <button type="submit" className="button target-form-submit">
+              Add target
             </button>
           </form>
 
@@ -1168,6 +1371,10 @@ function App() {
                   <span className="drift-stat-num">{driftSummary.onTrack}</span>
                   <span className="drift-stat-label">On track</span>
                 </div>
+                <div className="drift-stat drift-stat--due">
+                  <span className="drift-stat-num">{driftSummary.due}</span>
+                  <span className="drift-stat-label">Due</span>
+                </div>
                 <div className="drift-stat">
                   <span className="drift-stat-num">{formatPercent(driftSummary.totalDeviation)}</span>
                   <span className="drift-stat-label">Total drift</span>
@@ -1176,14 +1383,14 @@ function App() {
 
               <div className="drift-controls">
                 <div className="chip-group">
-                  {(["all", "over", "under", "ontrack"] as const).map((s) => (
+                  {(["all", "over", "under", "ontrack", "due"] as const).map((s) => (
                     <button
                       key={s}
                       type="button"
                       className={`chip ${targetStatusFilter === s ? "chip--active" : ""}`}
                       onClick={() => setTargetStatusFilter(s)}
                     >
-                      {s === "all" ? "All" : s === "over" ? "Over" : s === "under" ? "Under" : "On track"}
+                      {s === "all" ? "All" : s === "over" ? "Over" : s === "under" ? "Under" : s === "ontrack" ? "On track" : "Due"}
                     </button>
                   ))}
                 </div>
@@ -1218,6 +1425,7 @@ function App() {
                 if (targetStatusFilter === "all") return true;
                 if (targetStatusFilter === "over") return row.drift > DRIFT.COUNT_THRESHOLD;
                 if (targetStatusFilter === "under") return row.drift < -DRIFT.COUNT_THRESHOLD;
+                if (targetStatusFilter === "due") return row.cadenceState === "due" || row.cadenceState === "overdue";
                 return Math.abs(row.drift) <= DRIFT.COUNT_THRESHOLD;
               })
               .sort((a, b) => {
@@ -1229,6 +1437,8 @@ function App() {
                 const scale = Math.max(row.currentWeight, row.targetWeight, 0.01) * 1.1;
                 const currentPct = (row.currentWeight / scale) * 100;
                 const targetPct = (row.targetWeight / scale) * 100;
+                const warnPctValue = (row.warnThreshold * 100).toFixed(1);
+                const criticalPctValue = (row.criticalThreshold * 100).toFixed(1);
                 return (
                   <div key={row.id} className={`drift-card drift-card--${row.status}`}>
                     <div className="drift-row-top">
@@ -1241,6 +1451,16 @@ function App() {
                         <span className="drift-arrow">→</span>
                         <span className="drift-target-num">{formatPercent(row.targetWeight)}</span>
                       </div>
+                      <CadenceBadge state={row.cadenceState} days={row.daysUntilDue} />
+                      <button
+                        type="button"
+                        className="drift-mark"
+                        onClick={() => markTargetRebalanced(row.id)}
+                        aria-label="Mark rebalanced today"
+                        title="Mark rebalanced today"
+                      >
+                        ✓
+                      </button>
                       <button
                         type="button"
                         className="drift-remove"
@@ -1271,6 +1491,72 @@ function App() {
                       {row.mode === "ticker" && row.shares > 0 && (
                         <span className="drift-shares">~{row.shares.toFixed(0)} sh</span>
                       )}
+                      <span className="drift-threshold-pill drift-threshold-pill--warn" title="Warn threshold (click to edit)">
+                        <span className="drift-threshold-label">Warn</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.1"
+                          min="0.1"
+                          max="100"
+                          className="inline-edit inline-edit--threshold"
+                          defaultValue={warnPctValue}
+                          aria-label="Warn threshold %"
+                          onBlur={(e) => {
+                            const next = Number(e.currentTarget.value);
+                            if (next !== row.warnThreshold * 100) {
+                              updateTargetThreshold(row.id, "warnThreshold", next);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                            if (e.key === "Escape") {
+                              e.currentTarget.value = warnPctValue;
+                              e.currentTarget.blur();
+                            }
+                          }}
+                        />
+                        <span className="drift-threshold-unit">%</span>
+                      </span>
+                      <span className="drift-threshold-pill drift-threshold-pill--critical" title="Critical threshold (click to edit)">
+                        <span className="drift-threshold-label">Crit</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.1"
+                          min="0.1"
+                          max="100"
+                          className="inline-edit inline-edit--threshold"
+                          defaultValue={criticalPctValue}
+                          aria-label="Critical threshold %"
+                          onBlur={(e) => {
+                            const next = Number(e.currentTarget.value);
+                            if (next !== row.criticalThreshold * 100) {
+                              updateTargetThreshold(row.id, "criticalThreshold", next);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                            if (e.key === "Escape") {
+                              e.currentTarget.value = criticalPctValue;
+                              e.currentTarget.blur();
+                            }
+                          }}
+                        />
+                        <span className="drift-threshold-unit">%</span>
+                      </span>
+                      <select
+                        className="drift-cadence-select"
+                        value={row.cadence}
+                        onChange={(e) => updateTargetCadence(row.id, e.target.value as RebalanceCadence)}
+                        title="Rebalance cadence"
+                        aria-label="Rebalance cadence"
+                      >
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="yearly">Yearly</option>
+                      </select>
                     </div>
                   </div>
                 );
@@ -2074,6 +2360,17 @@ function ActionRow({
 }
 
 
+
+function CadenceBadge({ state, days }: { state: CadenceState; days: number }) {
+  const label = (() => {
+    if (state === "never") return "Never rebalanced";
+    if (state === "overdue") return `Overdue ${Math.abs(days)}d`;
+    if (state === "due") return days <= 0 ? `Due ${Math.abs(days)}d ago` : `Due in ${days}d`;
+    if (state === "soon") return `Soon (${days}d)`;
+    return `Fresh (${days}d)`;
+  })();
+  return <span className={`drift-cadence-badge drift-cadence-badge--${state}`}>{label}</span>;
+}
 
 function RankedAllocation({
   items,

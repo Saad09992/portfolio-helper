@@ -188,6 +188,19 @@ describe("upsertDailySnapshot", () => {
       corrected,
     ]);
   });
+
+  it("preserves the shares dict on replacement", () => {
+    const history = [
+      { ...snap("2026-05-14T11:00:00Z", 1150), shares: { OGDC: 100 } },
+    ];
+    const entry = {
+      ...snap("2026-05-14T15:45:00Z", 1234),
+      shares: { OGDC: 105, PVOT: 20 },
+    };
+    const result = upsertDailySnapshot(history, entry, pkDateOf);
+    expect(result).toHaveLength(1);
+    expect(result[0].shares).toEqual({ OGDC: 105, PVOT: 20 });
+  });
 });
 
 describe("xirr", () => {

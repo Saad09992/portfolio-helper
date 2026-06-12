@@ -1,3 +1,4 @@
+import { TARGET_DEFAULTS } from "../constants";
 import type {
   CashBuckets,
   Holding,
@@ -10,6 +11,16 @@ import {
   storageKey,
 } from "../utils";
 import { normalizeHolding } from "./holdings";
+
+export function normalizeTarget(t: TargetAllocation): TargetAllocation {
+  return {
+    ...t,
+    warnThreshold: t.warnThreshold ?? TARGET_DEFAULTS.WARN_THRESHOLD,
+    criticalThreshold: t.criticalThreshold ?? TARGET_DEFAULTS.CRITICAL_THRESHOLD,
+    cadence: t.cadence ?? TARGET_DEFAULTS.CADENCE,
+    lastRebalancedAt: t.lastRebalancedAt ?? null,
+  };
+}
 
 export const cashStorageKey = `${storageKey}:cash-buckets`;
 export const targetStorageKey = `${storageKey}:targets`;
@@ -61,7 +72,7 @@ export function loadTargets(): TargetAllocation[] {
 
   try {
     const parsed = JSON.parse(raw) as TargetAllocation[];
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.map(normalizeTarget) : [];
   } catch {
     return [];
   }

@@ -19,7 +19,7 @@ export type SummaryTargetRow = {
   drift: number;
   absDrift: number;
   gapValue: number;
-  status: "severe" | "moderate" | "ontrack";
+  status: "critical" | "warn" | "ontrack";
 };
 
 export type SummaryDividend = {

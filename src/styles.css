@@ -821,12 +821,30 @@ button {
 }
 
 .target-form {
-  display: grid;
-  grid-template-columns: 130px minmax(280px, 1fr) 130px auto;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   margin-bottom: 16px;
-  align-items: stretch;
-  max-width: 720px;
+  align-items: flex-end;
+}
+
+.target-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+}
+
+.target-form-field--grow {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.target-form-label {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
 
 .target-form input,
@@ -848,9 +866,10 @@ button {
   border-color: rgba(94, 234, 212, 0.5);
 }
 
-.target-form .button {
+.target-form-submit {
   padding: 8px 14px;
   font-size: 0.85rem;
+  height: 36px;
 }
 
 .combobox {
@@ -973,6 +992,7 @@ button {
 .drift-stat--over .drift-stat-num { color: var(--negative); }
 .drift-stat--under .drift-stat-num { color: #fbbf24; }
 .drift-stat--ontrack .drift-stat-num { color: var(--positive); }
+.drift-stat--due .drift-stat-num { color: #a78bfa; }
 
 .drift-controls {
   display: flex;
@@ -1036,8 +1056,8 @@ button {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-.drift-card--severe { border-left-color: var(--negative); }
-.drift-card--moderate { border-left-color: #fbbf24; }
+.drift-card--critical { border-left-color: var(--negative); }
+.drift-card--warn { border-left-color: #fbbf24; }
 .drift-card--ontrack { border-left-color: var(--positive); }
 
 .drift-row-top {
@@ -1173,6 +1193,111 @@ button {
   margin-left: auto;
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+.drift-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 140ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drift-mark:hover {
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--positive);
+}
+
+.drift-cadence-badge {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(140, 170, 255, 0.08);
+  color: var(--muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.drift-cadence-badge--never {
+  background: rgba(140, 170, 255, 0.1);
+  color: var(--muted);
+}
+
+.drift-cadence-badge--overdue {
+  background: rgba(248, 113, 113, 0.14);
+  color: var(--negative);
+}
+
+.drift-cadence-badge--due {
+  background: rgba(167, 139, 250, 0.16);
+  color: #c4b5fd;
+}
+
+.drift-cadence-badge--soon {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+}
+
+.drift-cadence-badge--fresh {
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--positive);
+}
+
+.drift-threshold-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.drift-threshold-pill--warn {
+  border-color: rgba(251, 191, 36, 0.25);
+}
+
+.drift-threshold-pill--critical {
+  border-color: rgba(248, 113, 113, 0.25);
+}
+
+.drift-threshold-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.6rem;
+}
+
+.drift-threshold-unit {
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.inline-edit--threshold {
+  width: 44px;
+  text-align: right;
+  padding: 1px 3px;
+  font-size: 0.72rem;
+}
+
+.drift-cadence-select {
+  border: 1px solid rgba(140, 170, 255, 0.18);
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: rgba(4, 8, 18, 0.5);
+  color: var(--text);
+  font-size: 0.7rem;
 }
 
 /* ── Suggested actions ── */
@@ -1659,8 +1784,10 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .target-form {
-    grid-template-columns: 1fr;
+  .target-form-field,
+  .target-form-field--grow {
+    flex: 1 1 100%;
+    min-width: 0;
   }
 
   .hero-actions {

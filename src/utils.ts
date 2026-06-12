@@ -220,6 +220,7 @@ export type PortfolioSnapshot = {
   totalValue: number;
   totalCost: number;
   gainLoss: number;
+  shares?: Record<string, number>;
 };
 
 // Upsert `entry` into daily portfolio history, keyed by its PKT calendar day.

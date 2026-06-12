@@ -1,5 +1,7 @@
 // Centralized tuning knobs. Group by domain.
 
+import type { RebalanceCadence } from "./types";
+
 export const DRIFT = {
   /** |currentWeight - target| above which a target is "severe" drift */
   SEVERE: 0.05,
@@ -39,3 +41,19 @@ export const MARKET = {
   /** PSX regular-session close in Asia/Karachi */
   CLOSE_PKT: "15:30",
 } as const;
+
+export const TARGET_DEFAULTS = {
+  /** Default warn threshold (5%) applied to targets that don't specify one. */
+  WARN_THRESHOLD: 0.05,
+  /** Default critical threshold (10%) applied to targets that don't specify one. */
+  CRITICAL_THRESHOLD: 0.10,
+  /** Default rebalance cadence applied to targets that don't specify one. */
+  CADENCE: "monthly" as RebalanceCadence,
+} as const;
+
+export const CADENCE_DAYS: Record<RebalanceCadence, number> = {
+  weekly: 7,
+  monthly: 30,
+  quarterly: 91,
+  yearly: 365,
+};

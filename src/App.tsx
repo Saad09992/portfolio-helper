@@ -7,6 +7,7 @@ import type {
 } from "./types";
 import {
   computePortfolio,
+  computeTwrIndex,
   createId,
   formatCompactCurrency,
   formatCurrency,
@@ -52,6 +53,8 @@ import { PortfolioHistoryChart } from "./components/charts/PortfolioHistoryChart
 import { InvestmentChart } from "./components/charts/InvestmentChart";
 import { Treemap } from "./components/charts/Treemap";
 import { getSliceColor } from "./components/charts/palette";
+import { CopySummaryButton } from "./components/CopySummaryButton";
+import type { PortfolioSummaryInput } from "./portfolio/summary";
 
 const BACKUP_SCHEMA_VERSION = 1;
 
@@ -366,6 +369,64 @@ function App() {
       count: investmentRows.length,
     };
   }, [investmentRows]);
+
+  const summaryInput: PortfolioSummaryInput = useMemo(() => {
+    const dayPnL = nonCashPortfolio.reduce((s, h) => {
+      const denom = 100 + h.dayChangePct;
+      return denom === 0 ? s : s + (h.marketValue * h.dayChangePct) / denom;
+    }, 0);
+    const twrIdx = computeTwrIndex(history);
+    const twrLatest = twrIdx.length >= 2 ? twrIdx[twrIdx.length - 1] : null;
+
+    return {
+      generatedAt: new Date().toISOString(),
+      lastFetchedAt,
+      totals: {
+        totalValue: portfolio.totalValue,
+        equityMarketValue,
+        totalCost: totalInvested,
+        unrealizedPnL: portfolio.totalGainLoss,
+        dayPnL,
+      },
+      cash: { available: cashDraft.available, weight: cashWeight },
+      holdings: nonCashPortfolio,
+      sectors,
+      targets: targetRows.map((r) => ({
+        mode: r.mode,
+        key: r.key,
+        currentWeight: r.currentWeight,
+        targetWeight: r.targetWeight,
+        drift: r.drift,
+        absDrift: r.absDrift,
+        gapValue: r.gapValue,
+        status: r.status,
+      })),
+      upcomingDividends: upcomingDividends.map((u) => ({
+        ticker: u.ticker,
+        date: u.date,
+        dps: u.dps,
+        expectedIncome: u.holding.shares * u.dps,
+      })),
+      investments: investmentSummary,
+      investmentLedger: investments,
+      history,
+      twrLatest,
+    };
+  }, [
+    nonCashPortfolio,
+    portfolio,
+    equityMarketValue,
+    totalInvested,
+    cashDraft.available,
+    cashWeight,
+    sectors,
+    targetRows,
+    upcomingDividends,
+    investmentSummary,
+    investments,
+    history,
+    lastFetchedAt,
+  ]);
 
   const sortedHoldings = useMemo(() => {
     const q = holdingsSearch.trim().toLowerCase();
@@ -799,6 +860,10 @@ function App() {
           <button type="button" className="button" onClick={exportPortfolio}>
             Export
           </button>
+          <CopySummaryButton
+            summaryInput={summaryInput}
+            disabled={holdings.length === 0}
+          />
           <label className="button" htmlFor="import-portfolio-file">
             Import
           </label>

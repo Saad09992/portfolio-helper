@@ -42,20 +42,48 @@ export async function savePortfolioBundle(portfolioPath, body) {
 }
 
 const PSX_TERMINAL = "https://psxterminal.com";
+const PSX_DPS = "https://dps.psx.com.pk";
+const DPS_UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
+// Scrape the official PSX Data Portal company page for the latest quote.
+// psxterminal's /api/fundamentals endpoint is dead (resets the HTTP/2 stream),
+// so we parse the authoritative dps.psx.com.pk page directly.
 export async function fetchQuote(ticker) {
   try {
     const res = await fetch(
-      `${PSX_TERMINAL}/api/fundamentals/${encodeURIComponent(ticker)}`,
+      `${PSX_DPS}/company/${encodeURIComponent(ticker)}`,
+      { headers: { "User-Agent": DPS_UA } },
     );
     if (!res.ok) return null;
-    const json = await res.json();
-    if (!json.success || !json.data) return null;
+    const html = await res.text();
+
+    // Anchor on the main quote block so we don't match the index ticker widget.
+    const start = html.indexOf("quote__price");
+    if (start === -1) return null;
+    const block = html.slice(start, start + 600);
+
+    const priceM = block.match(
+      /quote__close[^>]*>\s*Rs\.?\s*([0-9,]+(?:\.[0-9]+)?)/i,
+    );
+    if (!priceM) return null;
+    const current = parseFloat(priceM[1].replace(/,/g, ""));
+    if (!Number.isFinite(current)) return null;
+
+    const signM = block.match(/quote__change\s+change__text--(pos|neg)/i);
+    const pctM = block.match(
+      /change__percent[^>]*>\s*\(\s*([0-9.]+)\s*%\s*\)/i,
+    );
+    let changePct = pctM ? parseFloat(pctM[1]) : 0;
+    if (signM && signM[1] === "neg") changePct = -changePct;
+
+    const dateM = html.match(/quote__date[^>]*>\s*\^?\s*As of\s*([^<]+)/i);
+
     return {
-      ticker: json.data.symbol.toUpperCase(),
-      current: json.data.price,
-      changePct: json.data.changePercent,
-      asOf: typeof json.data.timestamp === "string" ? json.data.timestamp : null,
+      ticker: ticker.toUpperCase(),
+      current,
+      changePct,
+      asOf: dateM ? dateM[1].trim() : null,
     };
   } catch (err) {
     console.warn(`[psx] fetchQuote(${ticker}) failed:`, err instanceof Error ? err.message : err);

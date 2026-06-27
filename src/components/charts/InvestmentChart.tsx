@@ -29,8 +29,8 @@ const INVEST_SERIES_META: Record<
   InvestSeriesKey,
   { label: string; color: string }
 > = {
-  total: { label: "Capital deployed", color: "#5ea5ea" },
-  value: { label: "Portfolio value", color: "#e4ecff" },
+  total: { label: "Capital deployed", color: "#4cc9f0" },
+  value: { label: "Portfolio value", color: "#00e676" },
 };
 
 export function InvestmentChart({ rows }: { rows: InvestmentChartRow[] }) {

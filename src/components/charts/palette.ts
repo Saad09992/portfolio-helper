@@ -1,12 +1,13 @@
+// Pro Trader Terminal series palette — neon-forward, high contrast on near-black.
 const PALETTE = [
-  "#4cc9f0",
-  "#5eead4",
-  "#f97316",
-  "#facc15",
-  "#a78bfa",
-  "#f472b6",
-  "#38bdf8",
-  "#34d399",
+  "#00e676", // accent green
+  "#4cc9f0", // info cyan
+  "#ffb300", // amber
+  "#a78bfa", // violet
+  "#ff5252", // red
+  "#f472b6", // pink
+  "#38bdf8", // sky
+  "#fbbf24", // gold
 ];
 
 export function getSliceColor(index: number): string {

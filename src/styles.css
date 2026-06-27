@@ -184,8 +184,8 @@ button {
 
 .page-nav-tab--active {
   color: var(--text);
-  background: linear-gradient(145deg, rgba(94, 234, 212, 0.18), rgba(94, 234, 212, 0.06));
-  border: 1px solid rgba(94, 234, 212, 0.35);
+  background: linear-gradient(145deg, rgba(0, 230, 118, 0.18), rgba(0, 230, 118, 0.06));
+  border: 1px solid rgba(0, 230, 118, 0.35);
   padding: 8px 13px;
 }
 
@@ -202,7 +202,7 @@ button {
   height: 260px;
   background: radial-gradient(
     circle,
-    rgba(94, 234, 212, 0.18),
+    rgba(0, 230, 118, 0.18),
     transparent 64%
   );
   pointer-events: none;
@@ -253,7 +253,7 @@ button {
 }
 
 .button {
-  border: 1px solid rgba(140, 170, 255, 0.18);
+  border: 1px solid rgba(42, 51, 64, 0.18);
   border-radius: 999px;
   padding: 12px 18px;
   background: rgba(255, 255, 255, 0.03);
@@ -267,13 +267,13 @@ button {
 
 .button:hover {
   transform: translateY(-1px);
-  border-color: rgba(94, 234, 212, 0.5);
+  border-color: rgba(0, 230, 118, 0.5);
 }
 
 .button-primary {
   background: linear-gradient(
     135deg,
-    rgba(94, 234, 212, 0.24),
+    rgba(0, 230, 118, 0.24),
     rgba(76, 201, 240, 0.18)
   );
 }
@@ -318,8 +318,8 @@ button {
   padding: 10px 14px;
   font-size: 0.88rem;
   border-radius: 12px;
-  background: rgba(94, 234, 212, 0.05);
-  border: 1px solid rgba(94, 234, 212, 0.12);
+  background: rgba(0, 230, 118, 0.05);
+  border: 1px solid rgba(0, 230, 118, 0.12);
 }
 
 .stats-grid {
@@ -421,7 +421,7 @@ button {
 
 .field input {
   width: 100%;
-  border: 1px solid rgba(140, 170, 255, 0.18);
+  border: 1px solid rgba(42, 51, 64, 0.18);
   border-radius: 14px;
   padding: 11px 12px;
   color: var(--text);
@@ -433,7 +433,7 @@ button {
 }
 
 .field input:focus {
-  border-color: rgba(94, 234, 212, 0.65);
+  border-color: rgba(0, 230, 118, 0.65);
 }
 
 .field input::placeholder {
@@ -457,10 +457,10 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border: 1px solid rgba(94, 234, 212, 0.35);
+  border: 1px solid rgba(0, 230, 118, 0.35);
   border-radius: 14px;
   padding: 11px 12px;
-  background: rgba(94, 234, 212, 0.06);
+  background: rgba(0, 230, 118, 0.06);
   color: var(--text);
 }
 
@@ -486,7 +486,7 @@ button {
   margin-top: 4px;
   border: 1px solid var(--panel-border);
   border-radius: 14px;
-  background: #0e1a2e;
+  background: #11161d;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
   max-height: 320px;
   overflow-y: auto;
@@ -511,7 +511,7 @@ button {
 }
 
 .stock-option:hover {
-  background: rgba(94, 234, 212, 0.08);
+  background: rgba(0, 230, 118, 0.08);
 }
 
 .stock-option strong {
@@ -528,8 +528,8 @@ button {
   height: 1px;
   background: linear-gradient(
     90deg,
-    rgba(140, 170, 255, 0.22),
-    rgba(140, 170, 255, 0)
+    rgba(42, 51, 64, 0.22),
+    rgba(42, 51, 64, 0)
   );
   margin: 6px 0 2px;
 }
@@ -580,7 +580,7 @@ button {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  color: rgba(94, 234, 212, 0.85);
+  color: rgba(0, 230, 118, 0.85);
 }
 
 .panel h2 {
@@ -695,7 +695,7 @@ button {
 }
 
 .legend-row--active {
-  background: rgba(94, 234, 212, 0.08);
+  background: rgba(0, 230, 118, 0.08);
 }
 
 .legend-row--dim {
@@ -780,7 +780,7 @@ button {
 
 .treemap-container {
   width: 100%;
-  border: 2px solid rgba(140, 170, 255, 0.18);
+  border: 2px solid rgba(42, 51, 64, 0.18);
   border-radius: 14px;
   overflow: hidden;
 }
@@ -893,7 +893,7 @@ button {
 .target-form select,
 .combobox input {
   width: 100%;
-  border: 1px solid rgba(140, 170, 255, 0.2);
+  border: 1px solid rgba(42, 51, 64, 0.2);
   border-radius: 10px;
   padding: 8px 10px;
   color: var(--text);
@@ -905,7 +905,7 @@ button {
 .target-form input:focus,
 .target-form select:focus,
 .combobox input:focus {
-  border-color: rgba(94, 234, 212, 0.5);
+  border-color: rgba(0, 230, 118, 0.5);
 }
 
 .target-form-submit {
@@ -929,7 +929,7 @@ button {
   overflow-y: auto;
   overflow-x: hidden;
   background: rgba(8, 14, 28, 0.98);
-  border: 1px solid rgba(140, 170, 255, 0.25);
+  border: 1px solid rgba(42, 51, 64, 0.25);
   border-radius: 10px;
   padding: 4px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
@@ -954,7 +954,7 @@ button {
 
 .combobox-option:hover,
 .combobox-option--active {
-  background: rgba(94, 234, 212, 0.12);
+  background: rgba(0, 230, 118, 0.12);
   color: var(--text);
 }
 
@@ -978,7 +978,7 @@ button {
 
 .target-filter {
   width: 100%;
-  border: 1px solid rgba(140, 170, 255, 0.18);
+  border: 1px solid rgba(42, 51, 64, 0.18);
   border-radius: 12px;
   padding: 9px 12px;
   color: var(--text);
@@ -989,7 +989,7 @@ button {
 }
 
 .target-filter:focus {
-  border-color: rgba(94, 234, 212, 0.5);
+  border-color: rgba(0, 230, 118, 0.5);
 }
 
 .target-filter::placeholder {
@@ -1002,7 +1002,7 @@ button {
   gap: 0;
   margin-bottom: 12px;
   padding: 10px 8px;
-  border: 1px solid rgba(140, 170, 255, 0.1);
+  border: 1px solid rgba(42, 51, 64, 0.1);
   border-radius: 12px;
   background: rgba(4, 8, 18, 0.4);
 }
@@ -1032,7 +1032,7 @@ button {
 }
 
 .drift-stat--over .drift-stat-num { color: var(--negative); }
-.drift-stat--under .drift-stat-num { color: #fbbf24; }
+.drift-stat--under .drift-stat-num { color: #ffb300; }
 .drift-stat--ontrack .drift-stat-num { color: var(--positive); }
 .drift-stat--due .drift-stat-num { color: #a78bfa; }
 
@@ -1051,7 +1051,7 @@ button {
 }
 
 .chip {
-  border: 1px solid rgba(140, 170, 255, 0.18);
+  border: 1px solid rgba(42, 51, 64, 0.18);
   border-radius: 999px;
   padding: 5px 11px;
   color: var(--muted);
@@ -1063,17 +1063,17 @@ button {
 
 .chip:hover {
   color: var(--text);
-  border-color: rgba(140, 170, 255, 0.4);
+  border-color: rgba(42, 51, 64, 0.4);
 }
 
 .chip--active {
   color: var(--text);
-  border-color: rgba(94, 234, 212, 0.6);
-  background: rgba(94, 234, 212, 0.12);
+  border-color: rgba(0, 230, 118, 0.6);
+  background: rgba(0, 230, 118, 0.12);
 }
 
 .drift-sort {
-  border: 1px solid rgba(140, 170, 255, 0.18);
+  border: 1px solid rgba(42, 51, 64, 0.18);
   border-radius: 8px;
   padding: 5px 10px;
   background: rgba(4, 8, 18, 0.5);
@@ -1099,7 +1099,7 @@ button {
 }
 
 .drift-card--critical { border-left-color: var(--negative); }
-.drift-card--warn { border-left-color: #fbbf24; }
+.drift-card--warn { border-left-color: #ffb300; }
 .drift-card--ontrack { border-left-color: var(--positive); }
 
 .drift-row-top {
@@ -1129,7 +1129,7 @@ button {
   letter-spacing: 0.08em;
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(140, 170, 255, 0.08);
+  background: rgba(42, 51, 64, 0.08);
   color: var(--muted);
   flex-shrink: 0;
 }
@@ -1184,7 +1184,7 @@ button {
 }
 
 .drift-fill--over { background: linear-gradient(90deg, rgba(248, 113, 113, 0.5), rgba(248, 113, 113, 0.85)); }
-.drift-fill--under { background: linear-gradient(90deg, rgba(94, 234, 212, 0.5), rgba(94, 234, 212, 0.85)); }
+.drift-fill--under { background: linear-gradient(90deg, rgba(0, 230, 118, 0.5), rgba(0, 230, 118, 0.85)); }
 
 .drift-target-marker {
   position: absolute;
@@ -1214,7 +1214,7 @@ button {
 }
 
 .drift-action-tag.buy {
-  background: rgba(94, 234, 212, 0.13);
+  background: rgba(0, 230, 118, 0.13);
   color: var(--positive);
 }
 
@@ -1254,7 +1254,7 @@ button {
 }
 
 .drift-mark:hover {
-  background: rgba(94, 234, 212, 0.12);
+  background: rgba(0, 230, 118, 0.12);
   color: var(--positive);
 }
 
@@ -1264,14 +1264,14 @@ button {
   letter-spacing: 0.06em;
   padding: 2px 7px;
   border-radius: 4px;
-  background: rgba(140, 170, 255, 0.08);
+  background: rgba(42, 51, 64, 0.08);
   color: var(--muted);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
 
 .drift-cadence-badge--never {
-  background: rgba(140, 170, 255, 0.1);
+  background: rgba(42, 51, 64, 0.1);
   color: var(--muted);
 }
 
@@ -1287,11 +1287,11 @@ button {
 
 .drift-cadence-badge--soon {
   background: rgba(251, 191, 36, 0.12);
-  color: #fbbf24;
+  color: #ffb300;
 }
 
 .drift-cadence-badge--fresh {
-  background: rgba(94, 234, 212, 0.12);
+  background: rgba(0, 230, 118, 0.12);
   color: var(--positive);
 }
 
@@ -1334,7 +1334,7 @@ button {
 }
 
 .drift-cadence-select {
-  border: 1px solid rgba(140, 170, 255, 0.18);
+  border: 1px solid rgba(42, 51, 64, 0.18);
   border-radius: 6px;
   padding: 2px 6px;
   background: rgba(4, 8, 18, 0.5);
@@ -1373,7 +1373,7 @@ button {
 }
 
 .action-group-label.buy {
-  background: rgba(94, 234, 212, 0.15);
+  background: rgba(0, 230, 118, 0.15);
   color: var(--positive);
 }
 
@@ -1422,7 +1422,7 @@ button {
   color: var(--muted);
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(140, 170, 255, 0.08);
+  background: rgba(42, 51, 64, 0.08);
 }
 
 .action-row-amount {
@@ -1534,8 +1534,8 @@ button {
 }
 
 .invest-chart-swatch--total {
-  background: rgba(94, 165, 234, 0.55);
-  border: 1px solid rgba(94, 165, 234, 0.8);
+  background: rgba(0, 230, 118, 0.55);
+  border: 1px solid rgba(0, 230, 118, 0.8);
 }
 
 .invest-chart-swatch--value {
@@ -1563,13 +1563,13 @@ button {
 }
 
 .invest-chart-step-fill {
-  fill: rgba(94, 165, 234, 0.18);
+  fill: rgba(0, 230, 118, 0.18);
   stroke: none;
 }
 
 .invest-chart-step {
   fill: none;
-  stroke: rgba(94, 165, 234, 0.85);
+  stroke: rgba(0, 230, 118, 0.85);
   stroke-width: 1.5;
 }
 
@@ -1605,8 +1605,8 @@ button {
   letter-spacing: 0.04em;
   padding: 2px 7px;
   border-radius: 5px;
-  border: 1px solid rgba(94, 234, 212, 0.35);
-  background: rgba(94, 234, 212, 0.08);
+  border: 1px solid rgba(0, 230, 118, 0.35);
+  background: rgba(0, 230, 118, 0.08);
   color: var(--positive);
   cursor: pointer;
   text-transform: none;
@@ -1615,14 +1615,14 @@ button {
 }
 
 .invest-fill-current:hover {
-  background: rgba(94, 234, 212, 0.2);
+  background: rgba(0, 230, 118, 0.2);
 }
 
 /* Holdings sortable headers + search */
 
 .holdings-search {
   width: 280px;
-  border: 1px solid rgba(140, 170, 255, 0.2);
+  border: 1px solid rgba(42, 51, 64, 0.2);
   border-radius: 10px;
   padding: 8px 12px;
   color: var(--text);
@@ -1632,7 +1632,7 @@ button {
 }
 
 .holdings-search:focus {
-  border-color: rgba(94, 234, 212, 0.5);
+  border-color: rgba(0, 230, 118, 0.5);
 }
 
 th.sortable {
@@ -1671,7 +1671,7 @@ th.right .sort-btn { text-align: right; }
 }
 
 .chip {
-  border: 1px solid rgba(140, 170, 255, 0.24);
+  border: 1px solid rgba(42, 51, 64, 0.24);
   border-radius: 999px;
   padding: 7px 12px;
   color: var(--text);
@@ -1682,8 +1682,8 @@ th.right .sort-btn { text-align: right; }
 }
 
 .chip.active {
-  border-color: rgba(94, 234, 212, 0.6);
-  background: rgba(94, 234, 212, 0.16);
+  border-color: rgba(0, 230, 118, 0.6);
+  background: rgba(0, 230, 118, 0.16);
 }
 
 .suggestion-row small {
@@ -1712,11 +1712,11 @@ th.right .sort-btn { text-align: right; }
 }
 
 .waterfall-bar.positive {
-  background: linear-gradient(90deg, #6ee7b7, #34d399);
+  background: linear-gradient(90deg, #00e676, #34d399);
 }
 
 .waterfall-bar.negative {
-  background: linear-gradient(90deg, #fca5a5, #f87171);
+  background: linear-gradient(90deg, #fca5a5, #ff5252);
 }
 
 /* ── Table ── */
@@ -1752,7 +1752,7 @@ th {
 
 .price-input {
   width: 112px;
-  border: 1px solid rgba(140, 170, 255, 0.2);
+  border: 1px solid rgba(42, 51, 64, 0.2);
   border-radius: 10px;
   padding: 7px 9px;
   text-align: right;
@@ -1762,7 +1762,7 @@ th {
 
 .price-input:focus {
   outline: none;
-  border-color: rgba(94, 234, 212, 0.65);
+  border-color: rgba(0, 230, 118, 0.65);
 }
 
 .inline-edit {
@@ -1789,7 +1789,7 @@ th {
 
 .inline-edit:focus {
   outline: none;
-  border-color: rgba(94, 234, 212, 0.65);
+  border-color: rgba(0, 230, 118, 0.65);
   background: rgba(15, 23, 42, 0.8);
 }
 
@@ -1917,11 +1917,11 @@ th {
 }
 
 .line-chart-summary span.positive {
-  color: var(--positive, #6ee7b7);
+  color: var(--positive, #00e676);
 }
 
 .line-chart-summary span.negative {
-  color: var(--negative, #f87171);
+  color: var(--negative, #ff5252);
 }
 
 .line-chart-summary span.muted {
@@ -1966,7 +1966,7 @@ th {
 
 .chip-group .chip--active,
 .chip-group .chip.chip--active {
-  background: rgba(94, 234, 212, 0.18);
+  background: rgba(0, 230, 118, 0.18);
   color: var(--text);
   border: none;
 }
@@ -1994,7 +1994,7 @@ th {
 }
 
 .line-chart-legend-item:hover {
-  border-color: rgba(140, 170, 255, 0.22);
+  border-color: rgba(42, 51, 64, 0.22);
 }
 
 .line-chart-legend-item--off {
@@ -2042,7 +2042,7 @@ th {
 }
 
 .line-chart-area {
-  fill: rgba(94, 165, 234, 0.14);
+  fill: rgba(0, 230, 118, 0.14);
   stroke: none;
 }
 
@@ -2058,7 +2058,7 @@ th {
 }
 
 .line-chart-step-fill {
-  fill: rgba(94, 165, 234, 0.16);
+  fill: rgba(0, 230, 118, 0.16);
   stroke: none;
 }
 
@@ -2081,7 +2081,7 @@ th {
 .chart-tooltip {
   z-index: 30;
   background: rgba(4, 10, 22, 0.96);
-  border: 1px solid rgba(140, 170, 255, 0.18);
+  border: 1px solid rgba(42, 51, 64, 0.18);
   border-radius: 10px;
   padding: 10px 12px;
   box-shadow:
@@ -2200,11 +2200,11 @@ th {
 }
 
 .waterfall-value.positive {
-  color: var(--positive, #6ee7b7);
+  color: var(--positive, #00e676);
 }
 
 .waterfall-value.negative {
-  color: var(--negative, #f87171);
+  color: var(--negative, #ff5252);
 }
 
 /* ── Dividend calendar ── */
@@ -2255,22 +2255,22 @@ th {
 }
 
 .dividend-bar--received .dividend-bar-fill {
-  background: linear-gradient(180deg, #6ee7b7 0%, rgba(52, 211, 153, 0.6) 100%);
+  background: linear-gradient(180deg, #00e676 0%, rgba(52, 211, 153, 0.6) 100%);
 }
 
 .dividend-bar--scheduled .dividend-bar-fill {
-  background: linear-gradient(180deg, #5eead4 0%, rgba(94, 234, 212, 0.55) 100%);
+  background: linear-gradient(180deg, #00e676 0%, rgba(0, 230, 118, 0.55) 100%);
 }
 
 .dividend-bar--projected .dividend-bar-fill {
   background: repeating-linear-gradient(
     135deg,
-    rgba(94, 234, 212, 0.45) 0px,
-    rgba(94, 234, 212, 0.45) 6px,
-    rgba(94, 234, 212, 0.15) 6px,
-    rgba(94, 234, 212, 0.15) 12px
+    rgba(0, 230, 118, 0.45) 0px,
+    rgba(0, 230, 118, 0.45) 6px,
+    rgba(0, 230, 118, 0.15) 6px,
+    rgba(0, 230, 118, 0.15) 12px
   );
-  border: 1px solid rgba(94, 234, 212, 0.5);
+  border: 1px solid rgba(0, 230, 118, 0.5);
 }
 
 .dividend-bar--empty .dividend-bar-track {
@@ -2282,12 +2282,12 @@ th {
 }
 
 .dividend-bar--current .dividend-bar-track {
-  outline: 1px solid rgba(94, 234, 212, 0.5);
+  outline: 1px solid rgba(0, 230, 118, 0.5);
   outline-offset: -1px;
 }
 
 .dividend-bar--current .dividend-bar-label {
-  color: var(--positive, #6ee7b7);
+  color: var(--positive, #00e676);
   font-weight: 600;
 }
 
@@ -2314,22 +2314,22 @@ th {
 }
 
 .dividend-swatch--received {
-  background: linear-gradient(180deg, #6ee7b7 0%, rgba(52, 211, 153, 0.6) 100%);
+  background: linear-gradient(180deg, #00e676 0%, rgba(52, 211, 153, 0.6) 100%);
 }
 
 .dividend-swatch--scheduled {
-  background: linear-gradient(180deg, #5eead4 0%, rgba(94, 234, 212, 0.55) 100%);
+  background: linear-gradient(180deg, #00e676 0%, rgba(0, 230, 118, 0.55) 100%);
 }
 
 .dividend-swatch--projected {
   background: repeating-linear-gradient(
     135deg,
-    rgba(94, 234, 212, 0.45) 0px,
-    rgba(94, 234, 212, 0.45) 4px,
-    rgba(94, 234, 212, 0.15) 4px,
-    rgba(94, 234, 212, 0.15) 8px
+    rgba(0, 230, 118, 0.45) 0px,
+    rgba(0, 230, 118, 0.45) 4px,
+    rgba(0, 230, 118, 0.15) 4px,
+    rgba(0, 230, 118, 0.15) 8px
   );
-  border: 1px solid rgba(94, 234, 212, 0.5);
+  border: 1px solid rgba(0, 230, 118, 0.5);
 }
 
 .dividend-bar-amount {
@@ -2475,7 +2475,7 @@ th {
 .confirm-card {
   width: min(480px, 100%);
   background: rgba(8, 14, 28, 0.98);
-  border: 1px solid rgba(140, 170, 255, 0.2);
+  border: 1px solid rgba(42, 51, 64, 0.2);
   border-radius: 18px;
   padding: 22px 24px 20px;
   box-shadow:
@@ -2617,11 +2617,11 @@ th {
 }
 
 .toast-warn {
-  border-left: 3px solid #fbbf24;
+  border-left: 3px solid #ffb300;
 }
 
 .toast-error {
-  border-left: 3px solid #f87171;
+  border-left: 3px solid #ff5252;
 }
 
 @keyframes toast-in {
@@ -2667,7 +2667,7 @@ th {
 
 .copy-summary-item:hover,
 .copy-summary-item:focus-visible {
-  background: rgba(94, 234, 212, 0.12);
+  background: rgba(0, 230, 118, 0.12);
   outline: none;
 }
 
@@ -2679,4 +2679,326 @@ th {
 .copy-summary-item-hint {
   font-size: 0.78rem;
   color: var(--muted);
+}
+
+/* =====================================================================
+   PRO TRADER TERMINAL — polish overrides (loaded last; wins precedence)
+   Sharp corners, dense data, neon-green accent, mono numerals, glow.
+   ===================================================================== */
+
+/* ---- Hero bar: flat strip with bottom rule ---- */
+.hero-bar {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+.hero-title h1 {
+  letter-spacing: -0.01em;
+}
+.eyebrow,
+.panel-kicker,
+.panel-meta {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+.hero-actions {
+  align-items: center;
+  gap: var(--s2);
+}
+.hero-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.hero-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+/* ---- Page nav: terminal tabs ---- */
+.page-nav {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: var(--s1);
+  gap: var(--s1);
+}
+.page-nav-tab {
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: var(--s2) var(--s3);
+  transition: color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+.page-nav-tab:hover {
+  color: var(--text);
+  text-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
+}
+.page-nav-tab--active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: rgba(0, 230, 118, 0.4);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* ---- Buttons: sharp, outlined ---- */
+.button {
+  border-radius: var(--radius);
+  border: 1px solid var(--panel-border-strong);
+  background: var(--panel-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: var(--s2) var(--s4);
+}
+.button:hover {
+  transform: none;
+  border-color: var(--accent);
+  color: var(--text);
+}
+.button-primary {
+  background: var(--accent-dim);
+  border-color: rgba(0, 230, 118, 0.55);
+  color: var(--accent);
+}
+.button-primary:hover:not(:disabled) {
+  box-shadow: var(--glow);
+  background: rgba(0, 230, 118, 0.14);
+}
+.button-danger {
+  border-color: rgba(255, 82, 82, 0.55);
+  background: rgba(255, 82, 82, 0.1);
+  color: #ffb4b4;
+}
+.button-danger:hover {
+  box-shadow: var(--glow-neg);
+}
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- Panels & stat cards: flat, sharp, glow on hover ---- */
+.stat-card,
+.panel {
+  border-radius: var(--radius);
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  box-shadow: var(--shadow-panel);
+}
+.stat-card {
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.stat-card:hover {
+  border-color: rgba(0, 230, 118, 0.4);
+  box-shadow: var(--glow);
+}
+.stat-card p {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+.stat-card strong {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.panel-header h2,
+.panel h2 {
+  letter-spacing: -0.01em;
+}
+
+/* ---- Forms / fields ---- */
+.field span,
+.target-form-label {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+.field input,
+.combobox input,
+.target-form-field input,
+.target-form-field select,
+.invest-form input,
+.holdings-search,
+.drift-sort,
+.target-filter,
+.drift-cadence-select {
+  border-radius: var(--radius);
+  border: 1px solid var(--panel-border-strong);
+  background: var(--panel-2);
+  color: var(--text);
+}
+.field input:focus,
+.combobox input:focus,
+.target-form-field input:focus,
+.target-form-field select:focus,
+.invest-form input:focus,
+.holdings-search:focus,
+.drift-sort:focus,
+.target-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--glow);
+}
+.form-error {
+  color: var(--neg);
+  border-left: 2px solid var(--neg);
+  padding-left: var(--s2);
+}
+
+/* ---- Chips / toggles ---- */
+.chip {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--panel-border-strong);
+  background: var(--panel-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.chip.active,
+.chip--active,
+.chip-group .chip--active {
+  background: var(--accent-dim);
+  border-color: rgba(0, 230, 118, 0.5);
+  color: var(--accent);
+}
+
+/* ---- Tables: dense rows, mono numerals, crisp separators ---- */
+.table-wrap table,
+.holdings-table {
+  font-size: 0.86rem;
+}
+.table-wrap thead th,
+.holdings-table thead th {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.64rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--panel-border-strong);
+  padding: var(--s2) var(--s3);
+}
+.table-wrap tbody td,
+.holdings-table tbody td {
+  padding: var(--s1) var(--s3);
+  line-height: 1.3;
+  border-bottom: 1px solid var(--panel-border);
+}
+.table-wrap tbody tr:hover td,
+.holdings-table tbody tr:hover td {
+  background: var(--panel-2);
+}
+.sort-btn:hover {
+  color: var(--accent);
+}
+.sort-arrow {
+  color: var(--accent);
+}
+
+/* ---- Inline edit: borderless until focus ---- */
+.inline-edit {
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+}
+.inline-edit:hover {
+  border-color: var(--panel-border-strong);
+  background: var(--panel-2);
+}
+.inline-edit:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--panel-2);
+  box-shadow: var(--glow);
+}
+
+/* ---- Remove button ---- */
+.remove-button {
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.66rem;
+  color: var(--muted);
+  border: 1px solid var(--panel-border-strong);
+  background: transparent;
+}
+.remove-button:hover {
+  color: var(--neg);
+  border-color: rgba(255, 82, 82, 0.55);
+}
+
+/* ---- Drift cards: status-coded left edge ---- */
+.drift-card {
+  border-radius: var(--radius);
+  border-left-width: 3px;
+}
+.drift-card--critical { border-left-color: var(--neg); }
+.drift-card--warn { border-left-color: var(--warn); }
+.drift-card--ontrack { border-left-color: var(--pos); }
+.drift-card:hover {
+  box-shadow: var(--shadow-panel);
+}
+.drift-cadence-badge {
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.6rem;
+}
+.drift-cadence-badge--overdue { color: var(--neg); }
+.drift-cadence-badge--due { color: var(--warn); }
+.drift-cadence-badge--soon { color: var(--info); }
+.drift-cadence-badge--fresh { color: var(--pos); }
+
+/* ---- Empty states: terminal prompt ---- */
+.empty-state,
+.chart-empty {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+.empty-state::before {
+  content: "> ";
+  color: var(--accent);
+}
+
+/* ---- Toasts: flat with status edge ---- */
+.toast {
+  border-radius: var(--radius);
+  border: 1px solid var(--panel-border-strong);
+  background: var(--panel-2);
+  border-left-width: 3px;
+}
+.toast-info { border-left-color: var(--info); }
+.toast-warn { border-left-color: var(--warn); }
+.toast-error { border-left-color: var(--neg); }
+
+/* ---- Chart grid lines: crisp token-based ---- */
+.line-chart-grid,
+.invest-chart-grid {
+  stroke: var(--panel-border);
 }

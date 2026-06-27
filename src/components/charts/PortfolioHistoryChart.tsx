@@ -22,9 +22,9 @@ const HISTORY_SERIES_META: Record<
   HistorySeriesKey,
   { label: string; color: string; dashed?: boolean }
 > = {
-  value: { label: "Market value", color: "#e4ecff" },
-  cost: { label: "Cost basis", color: "#fbbf24", dashed: true },
-  twr: { label: "True return (TWR)", color: "#5eead4" },
+  value: { label: "Market value", color: "#e6edf3" },
+  cost: { label: "Cost basis", color: "#ffb300", dashed: true },
+  twr: { label: "True return (TWR)", color: "#00e676" },
 };
 
 export function PortfolioHistoryChart({

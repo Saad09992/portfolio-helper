@@ -43,14 +43,11 @@ export async function savePortfolioBundle(portfolioPath, body) {
   await rename(tmp, portfolioPath);
 }
 
-const PSX_TERMINAL = "https://psxterminal.com";
 const PSX_DPS = "https://dps.psx.com.pk";
 const DPS_UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
 // Scrape the official PSX Data Portal company page for the latest quote.
-// psxterminal's /api/fundamentals endpoint is dead (resets the HTTP/2 stream),
-// so we parse the authoritative dps.psx.com.pk page directly.
 export async function fetchQuote(ticker) {
   try {
     const res = await fetchWithTimeout(
@@ -102,60 +99,13 @@ export async function fetchQuoteResilient(ticker) {
   return fetchQuoteSarmaaya(ticker);
 }
 
-async function fetchDividend(ticker) {
-  try {
-    const res = await fetchWithTimeout(
-      `${PSX_TERMINAL}/api/dividends/${encodeURIComponent(ticker)}`,
-    );
-    if (!res.ok) return null;
-    const json = await res.json();
-    if (!json.success || !json.data || json.data.length === 0) return null;
-
-    const todayTs = Date.now();
-    const payouts = [];
-    let earliestUpcoming = "";
-
-    for (const rec of json.data) {
-      const exTs = rec.ex_date ? new Date(rec.ex_date).getTime() : NaN;
-      if (!Number.isFinite(exTs) || exTs < todayTs) continue;
-      if (!(rec.amount > 0)) continue;
-
-      payouts.push({
-        announcementDate: rec.ex_date,
-        bookClosureDate: rec.record_date,
-        dividendPerShare: Math.round(rec.amount * 100) / 100,
-      });
-
-      if (
-        rec.record_date &&
-        (!earliestUpcoming || rec.record_date < earliestUpcoming)
-      ) {
-        earliestUpcoming = rec.record_date;
-      }
-    }
-
-    if (payouts.length === 0) return null;
-
-    const totalDps = payouts.reduce((s, p) => s + p.dividendPerShare, 0);
-
-    return {
-      ticker: ticker.toUpperCase(),
-      dividendPerShare: Math.round(totalDps * 100) / 100,
-      payoutDate: earliestUpcoming,
-      payouts,
-      source: "psxterminal",
-    };
-  } catch (err) {
-    console.warn(`[psx] fetchDividend(${ticker}) failed:`, err instanceof Error ? err.message : err);
-    return null;
-  }
-}
-
-// Primary (psxterminal, with timeout + 1 retry) → fallback (sarmaaya, currently
-// price-only; dividend rows are lazy-loaded on sarmaaya so this usually yields null).
+// Dividends: psxterminal.com was abandoned (host dead — connection refused, and
+// its /api/fundamentals already reset the HTTP/2 stream). sarmaaya is now the
+// only dividend source. NOTE: sarmaaya renders payouts via a client-only React
+// Server Component, so they are not present in the server HTML — this usually
+// returns null today (logged in fetchDividendSarmaaya) until a structured
+// source becomes available. Price (dps → sarmaaya) is unaffected.
 async function fetchDividendResilient(ticker) {
-  const primary = await withRetry(() => fetchDividend(ticker));
-  if (primary) return primary;
   return fetchDividendSarmaaya(ticker);
 }
 

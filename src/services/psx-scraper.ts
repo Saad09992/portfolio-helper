@@ -1,7 +1,7 @@
 import type { Holding, Payout } from "../types";
 import { apiFetch } from "./api-url";
 
-export type QuoteSource = "dps" | "psxterminal" | "sarmaaya" | string;
+export type QuoteSource = "dps" | "sarmaaya" | string;
 
 export type MarketQuote = {
   ticker: string;

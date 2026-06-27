@@ -110,11 +110,21 @@ export function applyMarketData(
       dividend: div?.source,
     };
 
+    // Crypto is USD-native: keep the unified PKR math correct by deriving the
+    // PKR cost basis from the USD cost via CoinGecko's implied USD->PKR rate
+    // (price_pkr / price_usd). So PKR P/L == USD P/L converted at today's FX.
+    let cryptoCostBasis: number | undefined;
+    if (isCrypto && quote.usdPrice && quote.usdPrice > 0) {
+      const rate = quote.current / quote.usdPrice;
+      cryptoCostBasis = Math.round((holding.usdCostBasis ?? 0) * rate * 100) / 100;
+    }
+
     return {
       ...holding,
       price: Math.round(quote.current * 100) / 100,
       dayChangePct: Math.round(quote.changePct * 100) / 100,
       ...(quote.usdPrice !== undefined && { usdPrice: quote.usdPrice }),
+      ...(cryptoCostBasis !== undefined && { costBasis: cryptoCostBasis }),
       ...(div && {
         dividendPerShare: div.dividendPerShare,
         payoutDate: div.payoutDate,

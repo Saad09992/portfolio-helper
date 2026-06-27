@@ -97,6 +97,7 @@ const emptyDraft: DraftHolding = {
   payoutDate: "",
   assetClass: "stock",
   coinId: "",
+  usdCostBasis: 0,
 };
 
 const emptyTargetDraft: DraftTarget = {
@@ -659,13 +660,16 @@ function App() {
       sector: isCrypto ? "Crypto" : draft.sector.trim() || "Uncategorized",
       account: isCrypto ? "Crypto" : "PSX",
       shares: draft.shares,
-      price: draft.price,
-      costBasis: draft.costBasis,
+      price: isCrypto ? 0 : draft.price,
+      // Crypto cost is USD-native; PKR costBasis is derived on the next price
+      // refresh from CoinGecko's implied FX. Starts at 0 until then.
+      costBasis: isCrypto ? 0 : draft.costBasis,
       dayChangePct: draft.dayChangePct,
       dividendPerShare: draft.dividendPerShare,
       payoutDate: draft.payoutDate,
       assetClass: isCrypto ? "crypto" : "stock",
       coinId: isCrypto ? draft.coinId : "",
+      ...(isCrypto && { usdCostBasis: draft.usdCostBasis ?? 0, usdPrice: 0 }),
     };
 
     setHoldings((current) => [holding, ...current]);
@@ -846,7 +850,9 @@ function App() {
     if (!Number.isFinite(value) || value <= 0) return;
     setHoldings((current) =>
       current.map((h) =>
-        h.id === id ? { ...h, shares: Math.round(value) } : h,
+        h.id === id
+          ? { ...h, shares: h.assetClass === "crypto" ? value : Math.round(value) }
+          : h,
       ),
     );
   }

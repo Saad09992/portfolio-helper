@@ -23,8 +23,10 @@ export type Holding = {
   assetClass?: AssetClass;
   /** CoinGecko id — crypto price match key (stocks match by ticker). */
   coinId?: string;
-  /** Last known native USD price, for the secondary crypto label. */
+  /** Last known native USD price (crypto primary display). */
   usdPrice?: number;
+  /** Native USD average cost (crypto primary; entered Binance-style). */
+  usdCostBasis?: number;
 };
 
 export type DerivedHolding = Holding & {

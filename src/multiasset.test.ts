@@ -18,6 +18,7 @@ function holding(p: Partial<Holding>): Holding {
     payoutDate: "",
     assetClass: p.assetClass,
     coinId: p.coinId,
+    usdCostBasis: p.usdCostBasis,
   };
 }
 
@@ -51,6 +52,21 @@ describe("applyMarketData multi-asset matching", () => {
     expect(out[1].usdPrice).toBe(60000);
     expect(out[1].dayChangePct).toBe(2);
     expect(sources["BTC"].price).toBe("coingecko");
+  });
+
+  it("derives crypto PKR cost basis from USD cost via implied FX", () => {
+    const holdings = [
+      holding({ id: "c", ticker: "BTC", assetClass: "crypto", coinId: "bitcoin", shares: 1, usdCostBasis: 50000 }),
+    ];
+    // implied USD->PKR rate = 16,000,000 / 60,000 = 266.67
+    const quotes: MarketQuote[] = [
+      { ticker: "", coinId: "bitcoin", current: 16_000_000, usdPrice: 60000, changePct: 0, source: "coingecko" },
+    ];
+    const out = applyMarketData(holdings, quotes, []).holdings[0];
+    const rate = 16_000_000 / 60000;
+    expect(out.costBasis).toBeCloseTo(Math.round(50000 * rate * 100) / 100, 2);
+    // PKR gain/loss should equal USD gain * rate
+    expect((out.price - out.costBasis) * out.shares).toBeCloseTo((60000 - 50000) * rate, 0);
   });
 
   it("does not match a crypto holding lacking a coinId", () => {

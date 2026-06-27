@@ -3120,9 +3120,11 @@ th {
   background: var(--accent-dim);
   color: var(--accent);
 }
-.usd-secondary {
+.usd-secondary,
+.pkr-secondary {
   color: var(--muted-2);
   font-family: var(--font-mono);
+  font-weight: 400;
 }
 .class-alloc {
   display: flex;

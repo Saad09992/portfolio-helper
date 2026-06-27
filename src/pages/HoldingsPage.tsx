@@ -1,7 +1,7 @@
 import type { DerivedHolding, Holding } from "../types";
 import type { HoldingsSortKey, HoldingsSortState } from "../uiTypes";
 import type { HoldingSources } from "../services/psx-scraper";
-import { formatCurrency, formatPercent } from "../utils";
+import { formatCurrency, formatPercent, formatUsd } from "../utils";
 import { Field } from "../components/ui/Field";
 import { SortHeader } from "../components/ui/SortHeader";
 import { StockSearch } from "../components/StockSearch";
@@ -134,16 +134,29 @@ export function HoldingsPage({
                 setDraft((current) => ({ ...current, shares: Number(value) }))
               }
             />
-            <Field
-              label="Avg price (Rs)"
-              type="number"
-              min={0}
-              step="0.01"
-              value={String(draft.costBasis)}
-              onChange={(value) =>
-                setDraft((current) => ({ ...current, costBasis: Number(value) }))
-              }
-            />
+            {isCrypto ? (
+              <Field
+                label="Avg cost (USD)"
+                type="number"
+                min={0}
+                step="any"
+                value={String(draft.usdCostBasis ?? 0)}
+                onChange={(value) =>
+                  setDraft((current) => ({ ...current, usdCostBasis: Number(value) }))
+                }
+              />
+            ) : (
+              <Field
+                label="Avg price (Rs)"
+                type="number"
+                min={0}
+                step="0.01"
+                value={String(draft.costBasis)}
+                onChange={(value) =>
+                  setDraft((current) => ({ ...current, costBasis: Number(value) }))
+                }
+              />
+            )}
           </div>
 
           {draftError ? <p className="form-error">{draftError}</p> : null}
@@ -214,6 +227,7 @@ export function HoldingsPage({
               ) : (
                 sortedHoldings.map((holding) => {
                   const syntheticCash = holding.id.startsWith("cash-");
+                  const isCryptoRow = holding.assetClass === "crypto";
                   const src = quoteSources[holding.ticker.toUpperCase()];
                   const fallback =
                     src?.price === "sarmaaya" || src?.dividend === "sarmaaya";
@@ -247,12 +261,12 @@ export function HoldingsPage({
                         ) : (
                           <input
                             type="number"
-                            inputMode="numeric"
-                            step="1"
-                            min="1"
+                            inputMode={isCryptoRow ? "decimal" : "numeric"}
+                            step={isCryptoRow ? "any" : "1"}
+                            min="0"
                             className="inline-edit num"
                             defaultValue={holding.shares}
-                            title="Edit shares"
+                            title={isCryptoRow ? "Edit quantity" : "Edit shares"}
                             onBlur={(e) => {
                               const next = Number(e.currentTarget.value);
                               if (next !== holding.shares) {
@@ -272,6 +286,12 @@ export function HoldingsPage({
                       <td className="right">
                         {syntheticCash ? (
                           <span className="num">{formatCurrency(holding.costBasis)}</span>
+                        ) : isCryptoRow ? (
+                          <span className="num">
+                            {formatUsd(holding.usdCostBasis ?? 0)}
+                            <br />
+                            <small className="pkr-secondary">≈ {formatCurrency(holding.costBasis)}</small>
+                          </span>
                         ) : (
                           <input
                             type="number"
@@ -298,18 +318,30 @@ export function HoldingsPage({
                         )}
                       </td>
                       <td className="right num">
-                        {formatCurrency(holding.price)}
-                        {holding.assetClass === "crypto" && holding.usdPrice ? (
+                        {isCryptoRow ? (
                           <>
+                            {formatUsd(holding.usdPrice ?? 0)}
                             <br />
-                            <small className="usd-secondary">~${holding.usdPrice.toLocaleString()}</small>
+                            <small className="pkr-secondary">≈ {formatCurrency(holding.price)}</small>
                           </>
-                        ) : null}
+                        ) : (
+                          formatCurrency(holding.price)
+                        )}
                       </td>
                       <td className={`right num ${holding.dayChangePct >= 0 ? "positive" : "negative"}`}>
                         {syntheticCash ? "-" : `${holding.dayChangePct.toFixed(2)}%`}
                       </td>
-                      <td className="right num">{formatCurrency(holding.marketValue)}</td>
+                      <td className="right num">
+                        {isCryptoRow ? (
+                          <>
+                            {formatUsd(holding.shares * (holding.usdPrice ?? 0))}
+                            <br />
+                            <small className="pkr-secondary">≈ {formatCurrency(holding.marketValue)}</small>
+                          </>
+                        ) : (
+                          formatCurrency(holding.marketValue)
+                        )}
+                      </td>
                       <td className="right num">{formatPercent(holding.weight)}</td>
                       <td className={`right num ${holding.dayChangePct >= 0 ? "positive" : "negative"}`}>
                         {syntheticCash ? "-" : (
@@ -321,11 +353,24 @@ export function HoldingsPage({
                         )}
                       </td>
                       <td className={`right num ${holding.gainLoss >= 0 ? "positive" : "negative"}`}>
-                        {formatCurrency(holding.gainLoss)}
-                        {!syntheticCash && holding.costValue > 0 && (
+                        {isCryptoRow ? (
                           <>
+                            {(() => {
+                              const usdGain = holding.shares * ((holding.usdPrice ?? 0) - (holding.usdCostBasis ?? 0));
+                              return formatUsd(usdGain);
+                            })()}
                             <br />
-                            <small>{holding.gainLoss >= 0 ? "+" : ""}{((holding.gainLoss / holding.costValue) * 100).toFixed(2)}%</small>
+                            <small className="pkr-secondary">≈ {formatCurrency(holding.gainLoss)}</small>
+                          </>
+                        ) : (
+                          <>
+                            {formatCurrency(holding.gainLoss)}
+                            {!syntheticCash && holding.costValue > 0 && (
+                              <>
+                                <br />
+                                <small>{holding.gainLoss >= 0 ? "+" : ""}{((holding.gainLoss / holding.costValue) * 100).toFixed(2)}%</small>
+                              </>
+                            )}
                           </>
                         )}
                       </td>

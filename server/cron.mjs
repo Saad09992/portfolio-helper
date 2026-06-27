@@ -14,11 +14,17 @@ import {
   upsertDailySnapshot,
 } from "./portfolio-compute.mjs";
 
-const CLOSE_HOUR_PKT = 15;
-const CLOSE_MIN_PKT = 30;
-const RUN_OFFSET_MIN = 5; // fire at 15:35 PKT — buffer for PSX API to settle
-const STALE_RETRY_MS = 10 * 60_000; // retry every 10 min when prices haven't settled
-const STALE_GIVE_UP_HOUR_PKT = 19; // stop retrying after 19:00 PKT — no snapshot for the day
+// Daily snapshot fires at 23:59 PKT so it captures the full day (incl. late
+// crypto movement) and lands before the PKT date rolls over to the next day.
+const SNAPSHOT_HOUR_PKT = 23;
+const SNAPSHOT_MIN_PKT = 59;
+const STALE_RETRY_MS = 5 * 60_000; // retry every 5 min when prices haven't settled
+const STALE_GIVE_UP_HOUR_PKT = 23; // stop retrying once we reach the 23:xx snapshot hour
+
+// True once the current PKT wall-clock time is at/after the 23:59 snapshot mark.
+function afterSnapshotTime(parts) {
+  return parts.hour * 60 + parts.minute >= SNAPSHOT_HOUR_PKT * 60 + SNAPSHOT_MIN_PKT;
+}
 
 // PKT is UTC+5 fixed (no DST). Today's 15:30 PKT close instant = 10:30 UTC.
 function pkCloseInstantMs(pkDate) {
@@ -61,7 +67,7 @@ function msUntilNextRun(now = new Date()) {
   let candidate = new Date(now.getTime());
   for (let i = 0; i < 14; i++) {
     const p = pkParts(candidate);
-    const targetMin = CLOSE_HOUR_PKT * 60 + CLOSE_MIN_PKT + RUN_OFFSET_MIN;
+    const targetMin = SNAPSHOT_HOUR_PKT * 60 + SNAPSHOT_MIN_PKT;
     const currentMin = p.hour * 60 + p.minute;
     const sameDayValid =
       i > 0 || currentMin < targetMin; // today only if we haven't passed 15:35 yet
@@ -101,12 +107,15 @@ export async function runDailySync({
   }
 
   if (!force) {
-    const { afterClose } = psxCloseStatus();
-    if (!afterClose) {
-      log("skip: before daily snapshot time (15:30 PKT)");
+    if (!afterSnapshotTime(pkParts(new Date()))) {
+      log("skip: before daily snapshot time (23:59 PKT)");
       return { ran: false, reason: "outside-window" };
     }
   }
+
+  // Stamp the snapshot's date at run start (≈23:59) so a scrape that finishes
+  // just after midnight still keys to the day that's ending, not the new one.
+  const snapshotIso = new Date().toISOString();
 
   const holdings = Array.isArray(bundle.holdings) ? bundle.holdings : [];
   const nonCash = holdings.filter((h) => !String(h.id ?? "").startsWith("cash-"));
@@ -207,7 +216,7 @@ export async function runDailySync({
     shares[ticker] = Number(h.shares) || 0;
   }
   const entry = {
-    date: nowIso,
+    date: snapshotIso,
     totalValue: totals.totalValue,
     totalCost: totals.totalCost,
     gainLoss: totals.totalGainLoss,
@@ -231,7 +240,7 @@ export async function runDailySync({
   await serializeSave(() => savePortfolioBundle(portfolioPath, nextBundle));
 
   log(
-    `synced: ${quoteCount} quotes (stocks ${freshStock.length}/${tickers.length}, crypto ${cryptoQuotes.length}/${coinIds.length}), value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(nowIso)}`,
+    `synced: ${quoteCount} quotes (stocks ${freshStock.length}/${tickers.length}, crypto ${cryptoQuotes.length}/${coinIds.length}), value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(snapshotIso)}`,
   );
   return { ran: true, entry, quoteCount };
 }
@@ -280,8 +289,8 @@ export function startScheduler({ portfolioPath, log = defaultLog } = {}) {
   const catchUp = async () => {
     try {
       const bundle = await loadBundle(portfolioPath);
-      const { afterClose, pkDate } = psxCloseStatus();
-      if (!bundle || !afterClose) return { stale: false };
+      const { pkDate } = psxCloseStatus();
+      if (!bundle || !afterSnapshotTime(pkParts(new Date()))) return { stale: false };
       const history = Array.isArray(bundle.history) ? bundle.history : [];
       const haveToday = history.some((s) => pkDateOf(s.date) === pkDate);
       if (haveToday) {

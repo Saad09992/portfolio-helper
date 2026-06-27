@@ -19,7 +19,7 @@ import {
   xirr,
 } from "./utils";
 import { useConfirm } from "./confirmDialog";
-import { applyMarketData, fetchDividends, fetchMarketData } from "./services/psx-scraper";
+import { applyMarketData, fetchMarketData } from "./services/psx-scraper";
 import type { HoldingSources } from "./services/psx-scraper";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
 import { ANALYTICS, DRIFT, REBALANCE, TARGET_DEFAULTS, UI_LIMITS } from "./constants";
@@ -839,11 +839,9 @@ function App() {
 
     try {
       const tickers = nonCash.map((h) => h.ticker);
-      const [quotes, dividends] = await Promise.all([
-        fetchMarketData(tickers),
-        fetchDividends(tickers),
-      ]);
-      const { holdings: updated, sources } = applyMarketData(holdings, quotes, dividends);
+      // Dividends disabled for now — no reliable source (see fetchDividendResilient).
+      const quotes = await fetchMarketData(tickers);
+      const { holdings: updated, sources } = applyMarketData(holdings, quotes, []);
       setHoldings(updated);
       setQuoteSources(sources);
       setLastFetchedAt(new Date().toISOString());
@@ -1129,7 +1127,6 @@ function App() {
           setCashDraft={setCashDraft}
           cashError={cashError}
           saveCashBuckets={saveCashBuckets}
-          upcomingDividends={upcomingDividends}
         />
       )}
 

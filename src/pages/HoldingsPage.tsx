@@ -344,7 +344,18 @@ export function HoldingsPage({
                       </td>
                       <td className="right num">{formatPercent(holding.weight)}</td>
                       <td className={`right num ${holding.dayChangePct >= 0 ? "positive" : "negative"}`}>
-                        {syntheticCash ? "-" : (
+                        {syntheticCash ? "-" : isCryptoRow ? (
+                          <>
+                            {formatUsd(
+                              (holding.shares * (holding.usdPrice ?? 0)) *
+                                holding.dayChangePct / (100 + holding.dayChangePct),
+                            )}
+                            <br />
+                            <small className="pkr-secondary">
+                              ≈ {formatCurrency(holding.marketValue * holding.dayChangePct / (100 + holding.dayChangePct))}
+                            </small>
+                          </>
+                        ) : (
                           <>
                             {formatCurrency(holding.marketValue * holding.dayChangePct / (100 + holding.dayChangePct))}
                             <br />

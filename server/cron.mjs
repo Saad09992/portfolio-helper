@@ -5,6 +5,7 @@ import {
   serializeSave,
   savePortfolioBundle,
 } from "./api.mjs";
+import { fetchCryptoQuotes } from "./coingecko.mjs";
 import {
   computeTotals,
   pkDateOf,
@@ -53,8 +54,9 @@ async function loadBundle(portfolioPath) {
   return JSON.parse(raw);
 }
 
-// ms from `now` until next 15:35 PKT that falls on Mon–Fri. Walks day by day
-// in Karachi time so DST / month / year rollovers fall out of Intl.
+// ms from `now` until the next 15:35 PKT — every calendar day (crypto trades
+// 24/7). Walks day by day in Karachi time so DST / month / year rollovers fall
+// out of Intl.
 function msUntilNextRun(now = new Date()) {
   let candidate = new Date(now.getTime());
   for (let i = 0; i < 14; i++) {
@@ -63,9 +65,8 @@ function msUntilNextRun(now = new Date()) {
     const currentMin = p.hour * 60 + p.minute;
     const sameDayValid =
       i > 0 || currentMin < targetMin; // today only if we haven't passed 15:35 yet
-    const isWeekday = !["Sat", "Sun"].includes(p.weekday);
 
-    if (isWeekday && sameDayValid) {
+    if (sameDayValid) {
       // Construct the target instant by binary-searching minute offsets — but
       // since Intl is one-way (instant → wall clock), just step minute by
       // minute from a coarse anchor. Simpler: probe instants at 1-min
@@ -100,9 +101,9 @@ export async function runDailySync({
   }
 
   if (!force) {
-    const { isWeekday, afterClose } = psxCloseStatus();
-    if (!isWeekday || !afterClose) {
-      log("skip: outside PSX post-close window");
+    const { afterClose } = psxCloseStatus();
+    if (!afterClose) {
+      log("skip: before daily snapshot time (15:30 PKT)");
       return { ran: false, reason: "outside-window" };
     }
   }
@@ -114,37 +115,77 @@ export async function runDailySync({
     return { ran: false, reason: "no-holdings" };
   }
 
-  const tickers = nonCash.map((h) => String(h.ticker ?? "").toUpperCase()).filter(Boolean);
-  const quotes = (await Promise.all(tickers.map(fetchQuoteResilient))).filter(Boolean);
+  const { pkDate, isWeekday: tradingDay } = psxCloseStatus();
 
-  if (quotes.length === 0) {
-    log(`skip: 0/${tickers.length} quotes returned`);
+  const stockHoldings = nonCash.filter((h) => (h.assetClass ?? "stock") !== "crypto");
+  const cryptoHoldings = nonCash.filter((h) => h.assetClass === "crypto");
+  const tickers = stockHoldings
+    .map((h) => String(h.ticker ?? "").toUpperCase())
+    .filter(Boolean);
+  const coinIds = [
+    ...new Set(cryptoHoldings.map((h) => String(h.coinId ?? "")).filter(Boolean)),
+  ];
+
+  // Fetch both classes; crypto trades 24/7 so weekend snapshots still move.
+  const [stockQuotes, cryptoQuotes] = await Promise.all([
+    Promise.all(tickers.map(fetchQuoteResilient)).then((a) => a.filter(Boolean)),
+    coinIds.length ? fetchCryptoQuotes(coinIds) : Promise.resolve([]),
+  ]);
+
+  if (stockQuotes.length === 0 && cryptoQuotes.length === 0) {
+    log(`skip: 0 quotes returned (stocks ${tickers.length}, crypto ${coinIds.length})`);
     return { ran: false, reason: "no-quotes" };
   }
 
-  const { pkDate } = psxCloseStatus();
-  const closeMs = pkCloseInstantMs(pkDate);
-  const { fresh, stale } = quoteFreshness(quotes, closeMs);
-  const missingCount = tickers.length - quotes.length;
-  if (stale.length > 0 || missingCount > 0) {
-    const staleTickers = stale.map((q) => q.ticker).join(",");
-    log(
-      `skip: quotes not settled — fresh=${fresh.length}/${tickers.length}, stale=${stale.length}, missing=${missingCount}${staleTickers ? `, staleTickers=${staleTickers}` : ""}`,
-    );
-    return {
-      ran: false,
-      reason: "quotes-stale",
-      fresh: fresh.length,
-      stale: stale.length,
-      missing: missingCount,
-    };
+  // Stock-freshness gate applies ONLY on PSX trading days — on weekends/holidays
+  // stocks legitimately have no new close, so we snapshot the last close + live
+  // crypto instead of waiting/retrying.
+  let freshStock = stockQuotes;
+  if (tradingDay && tickers.length > 0) {
+    const closeMs = pkCloseInstantMs(pkDate);
+    const { fresh, stale } = quoteFreshness(stockQuotes, closeMs);
+    const missingCount = tickers.length - stockQuotes.length;
+    if (stale.length > 0 || missingCount > 0) {
+      const staleTickers = stale.map((q) => q.ticker).join(",");
+      log(
+        `skip: quotes not settled — fresh=${fresh.length}/${tickers.length}, stale=${stale.length}, missing=${missingCount}${staleTickers ? `, staleTickers=${staleTickers}` : ""}`,
+      );
+      return {
+        ran: false,
+        reason: "quotes-stale",
+        fresh: fresh.length,
+        stale: stale.length,
+        missing: missingCount,
+      };
+    }
+    freshStock = fresh;
   }
 
+  const quoteCount = freshStock.length + cryptoQuotes.length;
+
   const quoteMap = new Map();
-  for (const q of fresh) quoteMap.set(q.ticker.toUpperCase(), q);
+  for (const q of freshStock) quoteMap.set(q.ticker.toUpperCase(), q);
+  const cryptoMap = new Map();
+  for (const q of cryptoQuotes) cryptoMap.set(q.coinId, q);
 
   const updatedHoldings = holdings.map((h) => {
     if (String(h.id ?? "").startsWith("cash-")) return h;
+    if (h.assetClass === "crypto") {
+      const cq = cryptoMap.get(String(h.coinId ?? ""));
+      if (!cq) return h;
+      // Derive PKR cost basis from USD cost via implied FX (price_pkr/price_usd).
+      const costBasis =
+        cq.usdPrice > 0
+          ? round2((Number(h.usdCostBasis) || 0) * (cq.current / cq.usdPrice))
+          : h.costBasis;
+      return {
+        ...h,
+        price: round2(cq.current),
+        dayChangePct: round2(cq.changePct),
+        usdPrice: cq.usdPrice,
+        costBasis,
+      };
+    }
     const q = quoteMap.get(String(h.ticker ?? "").toUpperCase());
     if (!q) return h;
     return {
@@ -190,9 +231,9 @@ export async function runDailySync({
   await serializeSave(() => savePortfolioBundle(portfolioPath, nextBundle));
 
   log(
-    `synced: ${quotes.length}/${tickers.length} quotes, value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(nowIso)}`,
+    `synced: ${quoteCount} quotes (stocks ${freshStock.length}/${tickers.length}, crypto ${cryptoQuotes.length}/${coinIds.length}), value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(nowIso)}`,
   );
-  return { ran: true, entry, quoteCount: quotes.length };
+  return { ran: true, entry, quoteCount };
 }
 
 export function startScheduler({ portfolioPath, log = defaultLog } = {}) {
@@ -239,8 +280,8 @@ export function startScheduler({ portfolioPath, log = defaultLog } = {}) {
   const catchUp = async () => {
     try {
       const bundle = await loadBundle(portfolioPath);
-      const { isWeekday, afterClose, pkDate } = psxCloseStatus();
-      if (!bundle || !isWeekday || !afterClose) return { stale: false };
+      const { afterClose, pkDate } = psxCloseStatus();
+      if (!bundle || !afterClose) return { stale: false };
       const history = Array.isArray(bundle.history) ? bundle.history : [];
       const haveToday = history.some((s) => pkDateOf(s.date) === pkDate);
       if (haveToday) {

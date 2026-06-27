@@ -194,7 +194,7 @@ export function OverviewPage({
           </div>
           <div className="panel-meta-row">
             <span className="panel-meta">
-              {history.length} snapshot{history.length === 1 ? "" : "s"} · 1/day after PSX close (15:30 PKT)
+              {history.length} snapshot{history.length === 1 ? "" : "s"} · 1/day after 15:30 PKT · all 7 days
             </span>
           </div>
         </div>

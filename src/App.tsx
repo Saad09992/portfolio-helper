@@ -930,8 +930,11 @@ function App() {
       }
 
       const snapshot = computePortfolio(buildHoldingsWithCash(updated, cashDraft));
-      const { isWeekday, afterClose } = psxCloseStatus();
-      if (isWeekday && afterClose) {
+      // Snapshot once/day after the 15:30 PKT close — every calendar day, so
+      // crypto's 24/7 movement (incl. weekends) is tracked. Stocks just carry
+      // their last close on non-trading days.
+      const { afterClose } = psxCloseStatus();
+      if (afterClose) {
         const shares: Record<string, number> = {};
         for (const h of updated) {
           if (!h.id.startsWith("cash-")) shares[h.ticker.toUpperCase()] = h.shares;

@@ -1,4 +1,9 @@
-import type { CashBuckets, Holding, SectorBucket } from "../types";
+import type {
+  AssetClassBucket,
+  CashBuckets,
+  Holding,
+  SectorBucket,
+} from "../types";
 
 export function normalizeHolding(holding: Holding): Holding {
   return {
@@ -6,7 +11,15 @@ export function normalizeHolding(holding: Holding): Holding {
     dayChangePct: Number(holding.dayChangePct ?? 0),
     dividendPerShare: Number(holding.dividendPerShare ?? 0),
     payoutDate: holding.payoutDate ?? "",
+    assetClass: holding.assetClass === "crypto" ? "crypto" : "stock",
+    coinId: holding.coinId ?? "",
   };
+}
+
+/** Display label for a holding's asset class, treating synthetic cash specially. */
+export function assetClassLabel(holding: { id: string; assetClass?: string }): string {
+  if (holding.id.startsWith("cash-")) return "cash";
+  return holding.assetClass === "crypto" ? "crypto" : "stock";
 }
 
 export function buildHoldingsWithCash(
@@ -22,13 +35,15 @@ export function buildHoldingsWithCash(
     ticker: "CASH",
     name: "Available Cash",
     sector: "Cash",
-    account: "PSX",
+    account: "Cash",
     shares: 1,
     price: cash.available,
     costBasis: cash.available,
     dayChangePct: 0,
     dividendPerShare: 0,
     payoutDate: "",
+    assetClass: "stock",
+    coinId: "",
   };
 
   return [cashPosition, ...nonCash];
@@ -50,6 +65,28 @@ export function buildSectorBuckets(
     current.weight += holding.weight;
     current.holdings += 1;
     map.set(holding.sector, current);
+  }
+
+  return [...map.values()].sort((left, right) => right.value - left.value);
+}
+
+export function buildAssetClassBuckets(
+  holdings: { id: string; assetClass?: string; marketValue: number; weight: number }[],
+): AssetClassBucket[] {
+  const map = new Map<string, AssetClassBucket>();
+
+  for (const holding of holdings) {
+    const cls = assetClassLabel(holding);
+    const current = map.get(cls) ?? {
+      assetClass: cls,
+      value: 0,
+      weight: 0,
+      holdings: 0,
+    };
+    current.value += holding.marketValue;
+    current.weight += holding.weight;
+    current.holdings += 1;
+    map.set(cls, current);
   }
 
   return [...map.values()].sort((left, right) => right.value - left.value);

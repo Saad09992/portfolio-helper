@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeRiskMetrics } from "./analytics";
+import { computeRiskMetrics, computeSavingsStats } from "./analytics";
+import type { InvestmentRow } from "./derivedTypes";
 import type { PortfolioSnapshot } from "./utils";
 
 const RF = 0.11;
@@ -87,5 +88,51 @@ describe("computeRiskMetrics", () => {
     );
     expect(rm.volatilityAnnual).toBe(0);
     expect(rm.sharpe).toBe(0);
+  });
+});
+
+function invRow(date: string, amount: number, total: number, valueEom: number): InvestmentRow {
+  const pnlValue = valueEom - total;
+  return {
+    id: date,
+    date,
+    label: date,
+    amount,
+    valueEom,
+    total,
+    pnlValue,
+    pnlPct: total > 0 ? (pnlValue / total) * 100 : 0,
+  };
+}
+
+describe("computeSavingsStats", () => {
+  it("is not ready with fewer than 2 rows", () => {
+    expect(computeSavingsStats([]).ready).toBe(false);
+    expect(computeSavingsStats([invRow("2026-01-01", 100, 100, 100)]).ready).toBe(false);
+  });
+
+  it("computes deposit-vs-market attribution and streak", () => {
+    const rows = [
+      invRow("2026-01-01", 100, 100, 100),
+      invRow("2026-02-01", 100, 200, 230),
+      invRow("2026-03-01", 100, 300, 400),
+    ];
+    const s = computeSavingsStats(rows);
+    expect(s.ready).toBe(true);
+    expect(s.totalContributed).toBe(300);
+    expect(s.latestValue).toBe(400);
+    expect(s.marketGain).toBe(100);
+    expect(s.pctFromDeposits).toBeCloseTo(0.75, 6);
+    expect(s.pctFromMarket).toBeCloseTo(0.25, 6);
+    expect(s.streak).toBe(3);
+  });
+
+  it("streak resets on a non-positive contribution", () => {
+    const rows = [
+      invRow("2026-01-01", 100, 100, 100),
+      invRow("2026-02-01", 0, 100, 120),
+      invRow("2026-03-01", 50, 150, 200),
+    ];
+    expect(computeSavingsStats(rows).streak).toBe(1);
   });
 });

@@ -4,6 +4,8 @@ export type Payout = {
   dividendPerShare: number;
 };
 
+export type AssetClass = "stock" | "crypto";
+
 export type Holding = {
   id: string;
   ticker: string;
@@ -17,6 +19,12 @@ export type Holding = {
   dividendPerShare: number;
   payoutDate: string;
   payouts?: Payout[];
+  /** "stock" (PSX) or "crypto". Defaults to "stock" for legacy data. */
+  assetClass?: AssetClass;
+  /** CoinGecko id — crypto price match key (stocks match by ticker). */
+  coinId?: string;
+  /** Last known native USD price, for the secondary crypto label. */
+  usdPrice?: number;
 };
 
 export type DerivedHolding = Holding & {
@@ -28,6 +36,13 @@ export type DerivedHolding = Holding & {
 
 export type SectorBucket = {
   sector: string;
+  value: number;
+  weight: number;
+  holdings: number;
+};
+
+export type AssetClassBucket = {
+  assetClass: string;
   value: number;
   weight: number;
   holdings: number;

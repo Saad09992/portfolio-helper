@@ -1,13 +1,17 @@
 import type { Holding, Payout } from "../types";
 import { apiFetch } from "./api-url";
 
-export type QuoteSource = "dps" | "sarmaaya" | string;
+export type QuoteSource = "dps" | "sarmaaya" | "coingecko" | string;
 
 export type MarketQuote = {
   ticker: string;
   current: number;
   changePct: number;
   source?: QuoteSource;
+  /** Set for crypto quotes — match key (stocks match by ticker). */
+  coinId?: string;
+  /** Native USD price for crypto secondary label. */
+  usdPrice?: number;
 };
 
 type DividendInfo = {
@@ -71,9 +75,12 @@ export function applyMarketData(
   quotes: MarketQuote[],
   dividends: DividendInfo[],
 ): { holdings: Holding[]; matched: number; sources: HoldingSources } {
-  const quoteMap = new Map<string, MarketQuote>();
+  // Stocks match by ticker; crypto match by CoinGecko id.
+  const byTicker = new Map<string, MarketQuote>();
+  const byCoinId = new Map<string, MarketQuote>();
   for (const quote of quotes) {
-    quoteMap.set(quote.ticker, quote);
+    if (quote.coinId) byCoinId.set(quote.coinId, quote);
+    if (quote.ticker) byTicker.set(quote.ticker.toUpperCase(), quote);
   }
 
   const divMap = new Map<string, DividendInfo>();
@@ -87,11 +94,16 @@ export function applyMarketData(
   const updated = holdings.map((holding) => {
     if (holding.id.startsWith("cash-")) return holding;
 
-    const quote = quoteMap.get(holding.ticker.toUpperCase());
+    const isCrypto = holding.assetClass === "crypto";
+    const quote = isCrypto
+      ? holding.coinId
+        ? byCoinId.get(holding.coinId)
+        : undefined
+      : byTicker.get(holding.ticker.toUpperCase());
     if (!quote) return holding;
 
     matched++;
-    const div = divMap.get(holding.ticker.toUpperCase());
+    const div = isCrypto ? undefined : divMap.get(holding.ticker.toUpperCase());
 
     sources[holding.ticker.toUpperCase()] = {
       price: quote.source,
@@ -102,6 +114,7 @@ export function applyMarketData(
       ...holding,
       price: Math.round(quote.current * 100) / 100,
       dayChangePct: Math.round(quote.changePct * 100) / 100,
+      ...(quote.usdPrice !== undefined && { usdPrice: quote.usdPrice }),
       ...(div && {
         dividendPerShare: div.dividendPerShare,
         payoutDate: div.payoutDate,

@@ -3088,3 +3088,71 @@ th {
   text-transform: uppercase;
   vertical-align: middle;
 }
+
+/* ---- Multi-asset: class tags, filters, allocation strip ---- */
+.asset-class-toggle {
+  margin-bottom: var(--s3);
+}
+.holdings-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+.class-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--panel-border-strong);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.class-tag--crypto {
+  border-color: rgba(167, 139, 250, 0.5);
+  background: rgba(167, 139, 250, 0.12);
+  color: #c4b5fd;
+}
+.class-tag--stock {
+  border-color: rgba(0, 230, 118, 0.4);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.usd-secondary {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+}
+.class-alloc {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.class-alloc-pill {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--panel-border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.class-alloc--stock { border-left-color: var(--accent); }
+.class-alloc--crypto { border-left-color: #a78bfa; }
+.class-alloc--cash { border-left-color: var(--muted-2); }
+.class-alloc-name {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+.class-alloc-weight {
+  font-size: 1rem;
+  font-weight: 600;
+}
+.class-alloc-value {
+  font-size: 0.72rem;
+  color: var(--muted);
+}

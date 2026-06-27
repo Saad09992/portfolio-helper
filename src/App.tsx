@@ -20,7 +20,8 @@ import {
 } from "./utils";
 import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchMarketData } from "./services/psx-scraper";
-import type { HoldingSources } from "./services/psx-scraper";
+import type { HoldingSources, MarketQuote } from "./services/psx-scraper";
+import { fetchCryptoMarketData } from "./services/crypto";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
 import { ANALYTICS, DRIFT, REBALANCE, TARGET_DEFAULTS, UI_LIMITS } from "./constants";
 import { computeRiskMetrics } from "./analytics";
@@ -34,11 +35,13 @@ import {
 import { ImportParseError, parseImportBundle } from "./portfolio/importExport";
 import { pkDateOf, psxCloseStatus } from "./portfolio/calendar";
 import {
+  buildAssetClassBuckets,
   buildHoldingsWithCash,
   buildSectorBuckets,
   getCashDeploymentIdea,
   normalizeHolding,
 } from "./portfolio/holdings";
+import { computeSavingsStats } from "./analytics";
 import {
   cashStorageKey,
   historyStorageKey,
@@ -92,6 +95,8 @@ const emptyDraft: DraftHolding = {
   dayChangePct: 0,
   dividendPerShare: 0,
   payoutDate: "",
+  assetClass: "stock",
+  coinId: "",
 };
 
 const emptyTargetDraft: DraftTarget = {
@@ -119,7 +124,8 @@ function App() {
   const [targetFilter, setTargetFilter] = useState("");
   const [targetStatusFilter, setTargetStatusFilter] = useState<"all" | "over" | "under" | "ontrack" | "due">("all");
   const [targetSort, setTargetSort] = useState<"drift" | "name" | "weight">("drift");
-  const [treemapMode, setTreemapMode] = useState<"sector" | "ticker">("sector");
+  const [treemapMode, setTreemapMode] = useState<"sector" | "ticker" | "assetClass">("sector");
+  const [holdingsClassFilter, setHoldingsClassFilter] = useState<"all" | "stock" | "crypto">("all");
   const [allocationView, setAllocationView] = useState<"map" | "ranked">("map");
   const [page, setPage] = useState<"overview" | "holdings" | "targets" | "income" | "invest">("overview");
   const [investments, setInvestments] = useState<InvestmentEntry[]>(() => loadInvestments());
@@ -504,14 +510,22 @@ function App() {
 
   const sortedHoldings = useMemo(() => {
     const q = holdingsSearch.trim().toLowerCase();
+    const byClass =
+      holdingsClassFilter === "all"
+        ? portfolio.holdings
+        : portfolio.holdings.filter(
+            (h) =>
+              h.id.startsWith("cash-") ||
+              (h.assetClass ?? "stock") === holdingsClassFilter,
+          );
     const filtered = q
-      ? portfolio.holdings.filter(
+      ? byClass.filter(
           (h) =>
             h.ticker.toLowerCase().includes(q) ||
             h.name.toLowerCase().includes(q) ||
             h.sector.toLowerCase().includes(q),
         )
-      : [...portfolio.holdings];
+      : [...byClass];
 
     const { key, dir } = holdingsSort;
     if (!key) return filtered;
@@ -547,7 +561,7 @@ function App() {
     });
 
     return filtered;
-  }, [portfolio.holdings, holdingsSearch, holdingsSort]);
+  }, [portfolio.holdings, holdingsSearch, holdingsSort, holdingsClassFilter]);
 
   function toggleSort(key: HoldingsSortKey) {
     setHoldingsSort((cur) => {
@@ -556,6 +570,11 @@ function App() {
       return { key: null, dir: "desc" };
     });
   }
+
+  const assetClassBuckets = useMemo(
+    () => buildAssetClassBuckets(portfolio.holdings),
+    [portfolio.holdings],
+  );
 
   const treemapItems = useMemo(() => {
     if (treemapMode === "sector") {
@@ -567,13 +586,27 @@ function App() {
       }));
     }
 
+    if (treemapMode === "assetClass") {
+      return assetClassBuckets.map((bucket) => ({
+        key: bucket.assetClass,
+        label: bucket.assetClass,
+        value: bucket.value,
+        weight: bucket.weight,
+      }));
+    }
+
     return portfolio.holdings.slice(0, UI_LIMITS.TREEMAP_TOP_N).map((holding) => ({
       key: holding.id,
       label: holding.ticker,
       value: holding.marketValue,
       weight: holding.weight,
     }));
-  }, [treemapMode, sectors, portfolio.holdings]);
+  }, [treemapMode, sectors, assetClassBuckets, portfolio.holdings]);
+
+  const savingsStats = useMemo(
+    () => computeSavingsStats(investmentRows),
+    [investmentRows],
+  );
 
   const waterfallRows = [...nonCashPortfolio]
     .sort((left, right) => Math.abs(right.gainLoss) - Math.abs(left.gainLoss))
@@ -613,18 +646,26 @@ function App() {
       return;
     }
 
+    const isCrypto = draft.assetClass === "crypto";
+    if (isCrypto && !draft.coinId) {
+      setDraftError("Pick a coin from the search to add a crypto holding.");
+      return;
+    }
+
     const holding: Holding = {
       id: createId(),
       ticker: ticker.toUpperCase(),
       name,
-      sector: draft.sector.trim() || "Uncategorized",
-      account: "PSX",
+      sector: isCrypto ? "Crypto" : draft.sector.trim() || "Uncategorized",
+      account: isCrypto ? "Crypto" : "PSX",
       shares: draft.shares,
       price: draft.price,
       costBasis: draft.costBasis,
       dayChangePct: draft.dayChangePct,
       dividendPerShare: draft.dividendPerShare,
       payoutDate: draft.payoutDate,
+      assetClass: isCrypto ? "crypto" : "stock",
+      coinId: isCrypto ? draft.coinId : "",
     };
 
     setHoldings((current) => [holding, ...current]);
@@ -838,9 +879,35 @@ function App() {
     setFetching(true);
 
     try {
-      const tickers = nonCash.map((h) => h.ticker);
+      const stockTickers = nonCash
+        .filter((h) => h.assetClass !== "crypto")
+        .map((h) => h.ticker);
+      const coinIds = Array.from(
+        new Set(
+          nonCash
+            .filter((h) => h.assetClass === "crypto" && h.coinId)
+            .map((h) => h.coinId as string),
+        ),
+      );
+
       // Dividends disabled for now — no reliable source (see fetchDividendResilient).
-      const quotes = await fetchMarketData(tickers);
+      // Fetch both classes independently so one source failing doesn't block the other.
+      const [stockRes, cryptoRes] = await Promise.allSettled([
+        stockTickers.length ? fetchMarketData(stockTickers) : Promise.resolve([]),
+        coinIds.length ? fetchCryptoMarketData(coinIds) : Promise.resolve([]),
+      ]);
+
+      const quotes: MarketQuote[] = [];
+      if (stockRes.status === "fulfilled") quotes.push(...stockRes.value);
+      if (cryptoRes.status === "fulfilled") quotes.push(...cryptoRes.value);
+
+      if (stockRes.status === "rejected" && stockTickers.length) {
+        pushToast(`Stock prices failed: ${String(stockRes.reason)}`, "error");
+      }
+      if (cryptoRes.status === "rejected" && coinIds.length) {
+        pushToast(`Crypto prices failed: ${String(cryptoRes.reason)}`, "error");
+      }
+
       const { holdings: updated, sources } = applyMarketData(holdings, quotes, []);
       setHoldings(updated);
       setQuoteSources(sources);
@@ -1072,6 +1139,7 @@ function App() {
           riskMetrics={riskMetrics}
           valueSeries={valueSeries}
           pnlSeries={pnlSeries}
+          assetClassBuckets={assetClassBuckets}
         />
       )}
 
@@ -1090,6 +1158,8 @@ function App() {
           updateHoldingCostBasis={updateHoldingCostBasis}
           removeHolding={removeHolding}
           quoteSources={quoteSources}
+          classFilter={holdingsClassFilter}
+          setClassFilter={setHoldingsClassFilter}
         />
       )}
 
@@ -1140,6 +1210,7 @@ function App() {
           totalValue={portfolio.totalValue}
           investmentRows={investmentRows}
           removeInvestment={removeInvestment}
+          savingsStats={savingsStats}
         />
       )}
       {confirmDialog}

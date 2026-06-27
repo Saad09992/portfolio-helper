@@ -1,4 +1,5 @@
 import { computeTwrIndex, type PortfolioSnapshot } from "./utils";
+import type { InvestmentRow } from "./derivedTypes";
 
 export type RiskMetrics = {
   /** false when there are fewer than 2 daily returns — UI shows "—". */
@@ -94,5 +95,77 @@ export function computeRiskMetrics(
     twrReturn,
     cagr,
     series: { twr, drawdown, dailyReturns },
+  };
+}
+
+export type SavingsStats = {
+  ready: boolean;
+  /** Average monthly contribution (sum of positive deposits / months elapsed). */
+  monthlyAvg: number;
+  /** Net capital contributed (last cumulative total). */
+  totalContributed: number;
+  latestValue: number;
+  marketGain: number;
+  /** Share of current value attributable to deposits vs market gains. */
+  pctFromDeposits: number;
+  pctFromMarket: number;
+  /** Consecutive most-recent entries with a positive contribution. */
+  streak: number;
+  months: number;
+};
+
+const EMPTY_SAVINGS: SavingsStats = {
+  ready: false,
+  monthlyAvg: 0,
+  totalContributed: 0,
+  latestValue: 0,
+  marketGain: 0,
+  pctFromDeposits: 0,
+  pctFromMarket: 0,
+  streak: 0,
+  months: 0,
+};
+
+/**
+ * Savings-behaviour stats derived from the investment ledger: how much is being
+ * saved per month, contribution streak, and how much of the current value came
+ * from deposits vs market gains.
+ */
+export function computeSavingsStats(rows: InvestmentRow[]): SavingsStats {
+  if (rows.length === 0) return EMPTY_SAVINGS;
+
+  const last = rows[rows.length - 1];
+  const totalContributed = last.total;
+  const latestValue = last.valueEom;
+  const marketGain = latestValue - totalContributed;
+
+  const deposits = rows.filter((r) => r.amount > 0);
+  const depositSum = deposits.reduce((s, r) => s + r.amount, 0);
+
+  const first = new Date(rows[0].date).getTime();
+  const lastTs = new Date(last.date).getTime();
+  const months =
+    Number.isFinite(first) && Number.isFinite(lastTs) && lastTs >= first
+      ? Math.max(1, Math.round((lastTs - first) / (1000 * 60 * 60 * 24 * 30.44)) + 1)
+      : Math.max(1, rows.length);
+
+  const monthlyAvg = depositSum / months;
+
+  let streak = 0;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].amount > 0) streak++;
+    else break;
+  }
+
+  return {
+    ready: rows.length >= 2 && latestValue > 0,
+    monthlyAvg,
+    totalContributed,
+    latestValue,
+    marketGain,
+    pctFromDeposits: latestValue > 0 ? totalContributed / latestValue : 0,
+    pctFromMarket: latestValue > 0 ? marketGain / latestValue : 0,
+    streak,
+    months,
   };
 }

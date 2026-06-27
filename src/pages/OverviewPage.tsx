@@ -1,4 +1,4 @@
-import type { CashBuckets, DerivedHolding } from "../types";
+import type { AssetClassBucket, CashBuckets, DerivedHolding } from "../types";
 import type { InvestmentSummary } from "../derivedTypes";
 import type { RiskMetrics } from "../analytics";
 import type { PortfolioSnapshot } from "../utils";
@@ -29,8 +29,8 @@ export type OverviewPageProps = {
   history: PortfolioSnapshot[];
   lastFetchedAt: string | null;
   fetching: boolean;
-  treemapMode: "sector" | "ticker";
-  setTreemapMode: (mode: "sector" | "ticker") => void;
+  treemapMode: "sector" | "ticker" | "assetClass";
+  setTreemapMode: (mode: "sector" | "ticker" | "assetClass") => void;
   allocationView: "map" | "ranked";
   setAllocationView: (view: "map" | "ranked") => void;
   treemapItems: TreemapItem[];
@@ -40,6 +40,7 @@ export type OverviewPageProps = {
   riskMetrics: RiskMetrics;
   valueSeries: number[];
   pnlSeries: number[];
+  assetClassBuckets: AssetClassBucket[];
 };
 
 function pctOrDash(ready: boolean, value: string): string {
@@ -69,6 +70,7 @@ export function OverviewPage({
   riskMetrics,
   valueSeries,
   pnlSeries,
+  assetClassBuckets,
 }: OverviewPageProps) {
   const rm = riskMetrics;
   return (
@@ -172,6 +174,18 @@ export function OverviewPage({
         />
       </section>
 
+      {assetClassBuckets.length > 0 && (
+        <section className="class-alloc">
+          {assetClassBuckets.map((b) => (
+            <div key={b.assetClass} className={`class-alloc-pill class-alloc--${b.assetClass}`}>
+              <span className="class-alloc-name">{b.assetClass}</span>
+              <span className="class-alloc-weight num">{formatPercent(b.weight)}</span>
+              <span className="class-alloc-value num">{formatCurrency(b.value)}</span>
+            </div>
+          ))}
+        </section>
+      )}
+
       <section className="panel">
         <div className="panel-header">
           <div>
@@ -227,6 +241,13 @@ export function OverviewPage({
                   onClick={() => setTreemapMode("ticker")}
                 >
                   Ticker
+                </button>
+                <button
+                  type="button"
+                  className={`chip ${treemapMode === "assetClass" ? "active" : ""}`}
+                  onClick={() => setTreemapMode("assetClass")}
+                >
+                  Class
                 </button>
               </div>
               <div className="toggle-row">

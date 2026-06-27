@@ -1,5 +1,6 @@
 import type { InvestmentRow, InvestmentSummary } from "../derivedTypes";
-import { formatCurrency } from "../utils";
+import type { SavingsStats } from "../analytics";
+import { formatCompactCurrency, formatCurrency, formatPercent } from "../utils";
 import { InvestmentChart } from "../components/charts/InvestmentChart";
 
 type DraftInvestment = {
@@ -18,6 +19,7 @@ export type InvestPageProps = {
   totalValue: number;
   investmentRows: InvestmentRow[];
   removeInvestment: (id: string) => void;
+  savingsStats: SavingsStats;
 };
 
 export function InvestPage({
@@ -29,9 +31,45 @@ export function InvestPage({
   totalValue,
   investmentRows,
   removeInvestment,
+  savingsStats,
 }: InvestPageProps) {
+  const sv = savingsStats;
   return (
     <>
+      <section className="panel risk-panel">
+        <div className="panel-header compact">
+          <div>
+            <p className="panel-kicker">Savings</p>
+            <h2>Savings behaviour</h2>
+          </div>
+          <span className="panel-meta">From your contribution ledger</span>
+        </div>
+        <div className="kpi-grid">
+          <div className="kpi-tile">
+            <p>Avg monthly saving</p>
+            <strong className="num">{sv.ready ? formatCompactCurrency(sv.monthlyAvg) : "—"}</strong>
+            <span>{sv.ready ? `over ${sv.months} mo` : "Add 2+ entries"}</span>
+          </div>
+          <div className="kpi-tile">
+            <p>Contribution streak</p>
+            <strong className="num">{sv.ready ? `${sv.streak}` : "—"}</strong>
+            <span>consecutive deposits</span>
+          </div>
+          <div className="kpi-tile">
+            <p>From deposits</p>
+            <strong className="num">{sv.ready ? formatPercent(sv.pctFromDeposits) : "—"}</strong>
+            <span>of current value</span>
+          </div>
+          <div className="kpi-tile">
+            <p>From market</p>
+            <strong className={`num ${sv.marketGain >= 0 ? "positive" : "negative"}`}>
+              {sv.ready ? formatPercent(sv.pctFromMarket) : "—"}
+            </strong>
+            <span>{sv.ready ? formatCompactCurrency(sv.marketGain) : "growth share"}</span>
+          </div>
+        </div>
+      </section>
+
       <section className="invest-summary">
         <div className="invest-stat">
           <span className="invest-stat-num num">{formatCurrency(investmentSummary.totalInvested)}</span>

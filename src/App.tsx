@@ -21,7 +21,8 @@ import {
 import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchDividends, fetchMarketData } from "./services/psx-scraper";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
-import { DRIFT, REBALANCE, TARGET_DEFAULTS, UI_LIMITS } from "./constants";
+import { ANALYTICS, DRIFT, REBALANCE, TARGET_DEFAULTS, UI_LIMITS } from "./constants";
+import { computeRiskMetrics } from "./analytics";
 import { ToastViewport } from "./components/Toast";
 import { pushToast } from "./hooks/useToast";
 import {
@@ -585,6 +586,13 @@ function App() {
     .sort((left, right) => right.dayChangePct - left.dayChangePct)
     .slice(0, UI_LIMITS.TOP_MOVERS);
 
+  const riskMetrics = useMemo(
+    () => computeRiskMetrics(history, ANALYTICS.RISK_FREE_ANNUAL, ANALYTICS.TRADING_DAYS),
+    [history],
+  );
+  const valueSeries = useMemo(() => history.map((s) => s.totalValue), [history]);
+  const pnlSeries = useMemo(() => history.map((s) => s.gainLoss), [history]);
+
   function addManualHolding(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -1050,6 +1058,9 @@ function App() {
           waterfallRows={waterfallRows}
           maxWaterfall={maxWaterfall}
           topMovers={topMovers}
+          riskMetrics={riskMetrics}
+          valueSeries={valueSeries}
+          pnlSeries={pnlSeries}
         />
       )}
 

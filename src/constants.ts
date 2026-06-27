@@ -57,3 +57,10 @@ export const CADENCE_DAYS: Record<RebalanceCadence, number> = {
   quarterly: 91,
   yearly: 365,
 };
+
+export const ANALYTICS = {
+  /** Annual risk-free rate for Sharpe (≈ PSX T-bill yield). Tweak as rates move. */
+  RISK_FREE_ANNUAL: 0.11,
+  /** PSX trading days per year — used to annualize daily volatility/return. */
+  TRADING_DAYS: 252,
+} as const;

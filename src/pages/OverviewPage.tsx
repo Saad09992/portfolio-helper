@@ -1,5 +1,6 @@
 import type { CashBuckets, DerivedHolding } from "../types";
 import type { InvestmentSummary } from "../derivedTypes";
+import type { RiskMetrics } from "../analytics";
 import type { PortfolioSnapshot } from "../utils";
 import {
   formatCurrency,
@@ -8,6 +9,7 @@ import {
   formatSignedPercent,
 } from "../utils";
 import { StatCard } from "../components/ui/StatCard";
+import { Sparkline } from "../components/ui/Sparkline";
 import { PieChart } from "../components/PieChart";
 import { RankedAllocation } from "../components/RankedAllocation";
 import { PortfolioHistoryChart } from "../components/charts/PortfolioHistoryChart";
@@ -35,7 +37,14 @@ export type OverviewPageProps = {
   waterfallRows: DerivedHolding[];
   maxWaterfall: number;
   topMovers: DerivedHolding[];
+  riskMetrics: RiskMetrics;
+  valueSeries: number[];
+  pnlSeries: number[];
 };
+
+function pctOrDash(ready: boolean, value: string): string {
+  return ready ? value : "—";
+}
 
 export function OverviewPage({
   equityMarketValue,
@@ -57,7 +66,11 @@ export function OverviewPage({
   waterfallRows,
   maxWaterfall,
   topMovers,
+  riskMetrics,
+  valueSeries,
+  pnlSeries,
 }: OverviewPageProps) {
+  const rm = riskMetrics;
   return (
     <>
       <section className="stats-grid">
@@ -65,6 +78,8 @@ export function OverviewPage({
           label="Total value"
           value={formatCurrency(equityMarketValue)}
           detail={`${nonCashCount} position${nonCashCount === 1 ? "" : "s"} · excludes cash`}
+          series={valueSeries}
+          seriesTone="accent"
         />
         <StatCard
           label="Total avg cost"
@@ -76,6 +91,16 @@ export function OverviewPage({
           value={formatCurrency(portfolio.totalGainLoss)}
           detail={portfolio.totalGainLoss >= 0 ? "Positive drift" : "Downside risk"}
           tone={portfolio.totalGainLoss >= 0 ? "positive" : "negative"}
+          series={pnlSeries}
+          seriesTone={portfolio.totalGainLoss >= 0 ? "positive" : "negative"}
+        />
+        <StatCard
+          label="True return (TWR)"
+          value={rm.ready ? formatSignedPercent(rm.twrReturn * 100, 1) : "—"}
+          detail={rm.ready ? `${formatSignedPercent(rm.cagr * 100, 1)} annualized` : "Needs 2+ snapshots"}
+          tone={rm.twrReturn >= 0 ? "positive" : "negative"}
+          series={rm.series.twr}
+          seriesTone={rm.twrReturn >= 0 ? "positive" : "negative"}
         />
         <StatCard
           label="Top position"
@@ -86,6 +111,48 @@ export function OverviewPage({
           }
           detail={topHolding ? topHolding.name : "Import holdings to begin"}
         />
+      </section>
+
+      <section className="panel risk-panel">
+        <div className="panel-header compact">
+          <div>
+            <p className="panel-kicker">Risk</p>
+            <h2>Performance &amp; risk profile</h2>
+          </div>
+          <span className="panel-meta">Flow-adjusted (TWR) · daily snapshots</span>
+        </div>
+        <div className="kpi-grid">
+          <div className="kpi-tile">
+            <p>Max drawdown</p>
+            <strong className="num negative">{pctOrDash(rm.ready, formatPercent(rm.maxDrawdown))}</strong>
+            {rm.ready ? <Sparkline data={rm.series.drawdown} tone="negative" fill /> : null}
+            <span>Peak-to-trough</span>
+          </div>
+          <div className="kpi-tile">
+            <p>Volatility</p>
+            <strong className="num">{pctOrDash(rm.ready, formatPercent(rm.volatilityAnnual))}</strong>
+            {rm.ready ? <Sparkline data={rm.series.dailyReturns} tone="warn" /> : null}
+            <span>Annualized</span>
+          </div>
+          <div className="kpi-tile">
+            <p>Sharpe</p>
+            <strong className={`num ${rm.sharpe >= 1 ? "positive" : rm.sharpe < 0 ? "negative" : ""}`}>
+              {rm.ready ? rm.sharpe.toFixed(2) : "—"}
+            </strong>
+            {rm.ready ? <Sparkline data={rm.series.twr} tone="accent" /> : null}
+            <span>Risk-adjusted return</span>
+          </div>
+          <div className="kpi-tile">
+            <p>Best day</p>
+            <strong className="num positive">{rm.ready ? formatSignedPercent(rm.bestDay * 100, 2) : "—"}</strong>
+            <span>Largest daily gain</span>
+          </div>
+          <div className="kpi-tile">
+            <p>Worst day</p>
+            <strong className="num negative">{rm.ready ? formatSignedPercent(rm.worstDay * 100, 2) : "—"}</strong>
+            <span>Largest daily loss</span>
+          </div>
+        </div>
       </section>
 
       <section className="stats-grid secondary">

@@ -3072,3 +3072,19 @@ th {
   font-size: 0.62rem;
   color: var(--muted-2);
 }
+
+/* ---- Fallback data-source badge ---- */
+.source-badge {
+  display: inline-block;
+  margin-left: var(--s2);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 179, 0, 0.5);
+  background: rgba(255, 179, 0, 0.12);
+  color: var(--warn);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}

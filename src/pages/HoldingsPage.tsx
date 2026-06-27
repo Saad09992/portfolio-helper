@@ -1,5 +1,6 @@
 import type { DerivedHolding, Holding } from "../types";
 import type { HoldingsSortKey, HoldingsSortState } from "../uiTypes";
+import type { HoldingSources } from "../services/psx-scraper";
 import { formatCurrency, formatPercent } from "../utils";
 import { Field } from "../components/ui/Field";
 import { SortHeader } from "../components/ui/SortHeader";
@@ -20,6 +21,7 @@ export type HoldingsPageProps = {
   updateHoldingShares: (id: string, value: number) => void;
   updateHoldingCostBasis: (id: string, value: number) => void;
   removeHolding: (id: string) => void;
+  quoteSources: HoldingSources;
 };
 
 export function HoldingsPage({
@@ -35,6 +37,7 @@ export function HoldingsPage({
   updateHoldingShares,
   updateHoldingCostBasis,
   removeHolding,
+  quoteSources,
 }: HoldingsPageProps) {
   return (
     <>
@@ -143,9 +146,22 @@ export function HoldingsPage({
               ) : (
                 sortedHoldings.map((holding) => {
                   const syntheticCash = holding.id.startsWith("cash-");
+                  const src = quoteSources[holding.ticker.toUpperCase()];
+                  const fallback =
+                    src?.price === "sarmaaya" || src?.dividend === "sarmaaya";
                   return (
                     <tr key={holding.id}>
-                      <td>{holding.ticker}</td>
+                      <td>
+                        {holding.ticker}
+                        {fallback ? (
+                          <span
+                            className="source-badge"
+                            title="Served via sarmaaya.pk fallback — PSX source failed"
+                          >
+                            sarmaaya
+                          </span>
+                        ) : null}
+                      </td>
                       <td>{holding.name}</td>
                       <td>{holding.sector}</td>
                       <td className="right">

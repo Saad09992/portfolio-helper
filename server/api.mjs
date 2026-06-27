@@ -2,6 +2,8 @@ import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "fs";
 import { copyFile, readFile, rename, rm, writeFile } from "fs/promises";
 import { dirname } from "path";
+import { fetchWithTimeout, withRetry } from "./scrape-util.mjs";
+import { fetchQuoteSarmaaya, fetchDividendSarmaaya } from "./sarmaaya.mjs";
 
 const BACKUP_GENERATIONS = 5;
 
@@ -51,7 +53,7 @@ const DPS_UA =
 // so we parse the authoritative dps.psx.com.pk page directly.
 export async function fetchQuote(ticker) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${PSX_DPS}/company/${encodeURIComponent(ticker)}`,
       { headers: { "User-Agent": DPS_UA } },
     );
@@ -84,6 +86,7 @@ export async function fetchQuote(ticker) {
       current,
       changePct,
       asOf: dateM ? dateM[1].trim() : null,
+      source: "dps",
     };
   } catch (err) {
     console.warn(`[psx] fetchQuote(${ticker}) failed:`, err instanceof Error ? err.message : err);
@@ -91,9 +94,17 @@ export async function fetchQuote(ticker) {
   }
 }
 
+// Primary (dps, with timeout + 1 retry) → fallback (sarmaaya). Each result is
+// tagged with its `source` so the client can surface fallbacks.
+export async function fetchQuoteResilient(ticker) {
+  const primary = await withRetry(() => fetchQuote(ticker));
+  if (primary) return primary;
+  return fetchQuoteSarmaaya(ticker);
+}
+
 async function fetchDividend(ticker) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${PSX_TERMINAL}/api/dividends/${encodeURIComponent(ticker)}`,
     );
     if (!res.ok) return null;
@@ -132,11 +143,20 @@ async function fetchDividend(ticker) {
       dividendPerShare: Math.round(totalDps * 100) / 100,
       payoutDate: earliestUpcoming,
       payouts,
+      source: "psxterminal",
     };
   } catch (err) {
     console.warn(`[psx] fetchDividend(${ticker}) failed:`, err instanceof Error ? err.message : err);
     return null;
   }
+}
+
+// Primary (psxterminal, with timeout + 1 retry) → fallback (sarmaaya, currently
+// price-only; dividend rows are lazy-loaded on sarmaaya so this usually yields null).
+async function fetchDividendResilient(ticker) {
+  const primary = await withRetry(() => fetchDividend(ticker));
+  if (primary) return primary;
+  return fetchDividendSarmaaya(ticker);
 }
 
 function sendJson(res, status, body) {
@@ -207,7 +227,7 @@ export function createApiMiddleware({ dbPath, portfolioPath }) {
       if (tickers.length === 0) {
         return sendJson(res, 400, { error: "tickers param required" });
       }
-      Promise.all(tickers.map(fetchDividend))
+      Promise.all(tickers.map(fetchDividendResilient))
         .then((results) => sendJson(res, 200, results.filter(Boolean)))
         .catch((err) => {
           if (!res.headersSent) sendJson(res, 500, { error: String(err) });
@@ -224,7 +244,7 @@ export function createApiMiddleware({ dbPath, portfolioPath }) {
       if (tickers.length === 0) {
         return sendJson(res, 400, { error: "tickers param required" });
       }
-      Promise.all(tickers.map(fetchQuote))
+      Promise.all(tickers.map(fetchQuoteResilient))
         .then((quotes) => sendJson(res, 200, quotes.filter((q) => q !== null)))
         .catch((err) => {
           if (!res.headersSent) {

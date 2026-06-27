@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import {
-  fetchQuote,
+  fetchQuoteResilient,
   serializeSave,
   savePortfolioBundle,
 } from "./api.mjs";
@@ -115,7 +115,7 @@ export async function runDailySync({
   }
 
   const tickers = nonCash.map((h) => String(h.ticker ?? "").toUpperCase()).filter(Boolean);
-  const quotes = (await Promise.all(tickers.map(fetchQuote))).filter(Boolean);
+  const quotes = (await Promise.all(tickers.map(fetchQuoteResilient))).filter(Boolean);
 
   if (quotes.length === 0) {
     log(`skip: 0/${tickers.length} quotes returned`);

@@ -20,6 +20,7 @@ import {
 } from "./utils";
 import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchDividends, fetchMarketData } from "./services/psx-scraper";
+import type { HoldingSources } from "./services/psx-scraper";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
 import { ANALYTICS, DRIFT, REBALANCE, TARGET_DEFAULTS, UI_LIMITS } from "./constants";
 import { computeRiskMetrics } from "./analytics";
@@ -132,6 +133,7 @@ function App() {
   });
 
   const [fetching, setFetching] = useState(false);
+  const [quoteSources, setQuoteSources] = useState<HoldingSources>({});
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(
     () => loadLastFetchedAt(),
   );
@@ -841,9 +843,20 @@ function App() {
         fetchMarketData(tickers),
         fetchDividends(tickers),
       ]);
-      const { holdings: updated } = applyMarketData(holdings, quotes, dividends);
+      const { holdings: updated, sources } = applyMarketData(holdings, quotes, dividends);
       setHoldings(updated);
+      setQuoteSources(sources);
       setLastFetchedAt(new Date().toISOString());
+
+      const fellBack = Object.values(sources).filter(
+        (s) => s.price === "sarmaaya" || s.dividend === "sarmaaya",
+      ).length;
+      if (fellBack > 0) {
+        pushToast(
+          `${fellBack} holding${fellBack === 1 ? "" : "s"} served via sarmaaya fallback — PSX source failed.`,
+          "warn",
+        );
+      }
 
       const snapshot = computePortfolio(buildHoldingsWithCash(updated, cashDraft));
       const { isWeekday, afterClose } = psxCloseStatus();
@@ -1078,6 +1091,7 @@ function App() {
           updateHoldingShares={updateHoldingShares}
           updateHoldingCostBasis={updateHoldingCostBasis}
           removeHolding={removeHolding}
+          quoteSources={quoteSources}
         />
       )}
 

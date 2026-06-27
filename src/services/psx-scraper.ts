@@ -1,10 +1,13 @@
 import type { Holding, Payout } from "../types";
 import { apiFetch } from "./api-url";
 
+export type QuoteSource = "dps" | "psxterminal" | "sarmaaya" | string;
+
 export type MarketQuote = {
   ticker: string;
   current: number;
   changePct: number;
+  source?: QuoteSource;
 };
 
 type DividendInfo = {
@@ -12,7 +15,14 @@ type DividendInfo = {
   dividendPerShare: number;
   payoutDate: string;
   payouts?: Payout[];
+  source?: QuoteSource;
 };
+
+/** Per-ticker provenance of the latest refresh (non-persisted, for UI badges). */
+export type HoldingSources = Record<
+  string,
+  { price?: QuoteSource; dividend?: QuoteSource }
+>;
 
 export async function fetchMarketData(tickers: string[]): Promise<MarketQuote[]> {
   if (tickers.length === 0) return [];
@@ -60,7 +70,7 @@ export function applyMarketData(
   holdings: Holding[],
   quotes: MarketQuote[],
   dividends: DividendInfo[],
-): { holdings: Holding[]; matched: number } {
+): { holdings: Holding[]; matched: number; sources: HoldingSources } {
   const quoteMap = new Map<string, MarketQuote>();
   for (const quote of quotes) {
     quoteMap.set(quote.ticker, quote);
@@ -72,6 +82,7 @@ export function applyMarketData(
   }
 
   let matched = 0;
+  const sources: HoldingSources = {};
 
   const updated = holdings.map((holding) => {
     if (holding.id.startsWith("cash-")) return holding;
@@ -81,6 +92,11 @@ export function applyMarketData(
 
     matched++;
     const div = divMap.get(holding.ticker.toUpperCase());
+
+    sources[holding.ticker.toUpperCase()] = {
+      price: quote.source,
+      dividend: div?.source,
+    };
 
     return {
       ...holding,
@@ -94,5 +110,5 @@ export function applyMarketData(
     };
   });
 
-  return { holdings: updated, matched };
+  return { holdings: updated, matched, sources };
 }

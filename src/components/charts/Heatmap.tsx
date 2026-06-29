@@ -11,15 +11,37 @@ export type HeatmapItem = {
   dayChangePct: number;
 };
 
+function lerp(a: number, b: number, t: number) {
+  return Math.round(a + (b - a) * t);
+}
+function hexToRgb(h: string): [number, number, number] {
+  const n = h.replace("#", "");
+  return [parseInt(n.slice(0, 2), 16), parseInt(n.slice(2, 4), 16), parseInt(n.slice(4, 6), 16)];
+}
+/** Day-change → red→grey→green, clamped at ±3%. */
+function dayColor(day: number, neg: string, mid: string, pos: string): string {
+  const t = Math.max(-1, Math.min(1, day / 3));
+  const [a, b, c] = hexToRgb(mid);
+  const [x, y, z] = hexToRgb(t >= 0 ? pos : neg);
+  const f = Math.abs(t);
+  return `rgb(${lerp(a, x, f)},${lerp(b, y, f)},${lerp(c, z, f)})`;
+}
+
 export function Heatmap({ items }: { items: HeatmapItem[] }) {
   const option = useMemo<EChartsCoreOption>(() => {
     const t = chartTokens();
-    // Flat: one tile per holding (so small positions like crypto always show),
-    // sized by value, colored by day %.
-    const data = items.map((c) => ({
-      name: c.ticker,
-      value: [c.value, c.dayChangePct],
-    }));
+    const mid = "#2a3340";
+    // Flat: one tile per holding (numeric value so EVERY position renders,
+    // incl. tiny crypto), colored explicitly by day %.
+    const data = [...items]
+      .sort((a, b) => b.value - a.value)
+      .map((c) => ({
+        name: c.ticker,
+        value: c.value,
+        day: c.dayChangePct,
+        weight: c.weight,
+        itemStyle: { color: dayColor(c.dayChangePct, t.neg, mid, t.pos) },
+      }));
 
     return {
       backgroundColor: "transparent",
@@ -27,18 +49,8 @@ export function Heatmap({ items }: { items: HeatmapItem[] }) {
         backgroundColor: t.panel,
         borderColor: t.border,
         textStyle: { color: t.text, fontFamily: t.fontMono, fontSize: 11 },
-        formatter: (info: { name: string; value: number | number[] }) => {
-          const v = Array.isArray(info.value) ? info.value : [info.value, 0];
-          return `${info.name}<br/>day ${v[1] >= 0 ? "+" : ""}${Number(v[1]).toFixed(2)}%<br/>Rs ${Number(v[0]).toLocaleString()}`;
-        },
-      },
-      visualMap: {
-        type: "continuous",
-        min: -5,
-        max: 5,
-        dimension: 1,
-        show: false,
-        inRange: { color: [t.neg, "#2a3340", t.pos] },
+        formatter: (info: { name: string; value: number; data: { day: number } }) =>
+          `${info.name}<br/>day ${info.data.day >= 0 ? "+" : ""}${info.data.day.toFixed(2)}%<br/>Rs ${Number(info.value).toLocaleString()}`,
       },
       series: [
         {
@@ -46,18 +58,19 @@ export function Heatmap({ items }: { items: HeatmapItem[] }) {
           roam: false,
           nodeClick: false,
           breadcrumb: { show: false },
-          width: "100%",
-          height: "100%",
-          visibleMin: 1,
+          top: 1,
+          bottom: 1,
+          left: 1,
+          right: 1,
+          visibleMin: 0,
           label: {
             show: true,
             color: t.text,
             fontFamily: t.fontMono,
             fontSize: 10,
-            formatter: (info: { name: string; value: number | number[] }) => {
-              const v = Array.isArray(info.value) ? info.value[1] : 0;
-              return `${info.name}\n${v >= 0 ? "+" : ""}${Number(v).toFixed(1)}%`;
-            },
+            overflow: "truncate",
+            formatter: (info: { name: string; data: { day: number } }) =>
+              `${info.name}\n${info.data.day >= 0 ? "+" : ""}${info.data.day.toFixed(1)}%`,
           },
           itemStyle: { borderColor: t.bg, borderWidth: 1, gapWidth: 1 },
           data,
@@ -67,5 +80,5 @@ export function Heatmap({ items }: { items: HeatmapItem[] }) {
   }, [items]);
 
   if (items.length === 0) return <div className="chart-empty">No holdings yet</div>;
-  return <EChart option={option} height={380} />;
+  return <EChart option={option} height={360} />;
 }

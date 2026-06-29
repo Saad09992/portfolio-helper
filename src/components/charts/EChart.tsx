@@ -39,7 +39,10 @@ export function EChart({
     chartRef.current = chart;
     const ro = new ResizeObserver(() => chart.resize());
     ro.observe(ref.current);
+    // Correct the size once layout has settled (init can measure pre-layout).
+    const raf = requestAnimationFrame(() => chart.resize());
     return () => {
+      cancelAnimationFrame(raf);
       ro.disconnect();
       chart.dispose();
       chartRef.current = null;
@@ -50,5 +53,11 @@ export function EChart({
     chartRef.current?.setOption(option, true);
   }, [option]);
 
-  return <div ref={ref} className={className} style={{ width: "100%", height }} />;
+  return (
+    <div
+      ref={ref}
+      className={className}
+      style={{ width: "100%", height, minWidth: 0, overflow: "hidden" }}
+    />
+  );
 }

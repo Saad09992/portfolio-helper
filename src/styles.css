@@ -3106,6 +3106,30 @@ th {
   width: 100%;
   height: 300px;
 }
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s4);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.legend-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.legend-dash {
+  width: 16px;
+  height: 0;
+  border-top: 2px solid;
+  border-color: inherit;
+}
+.legend-dash--dashed {
+  border-top-style: dashed;
+}
+.legend-muted {
+  color: var(--muted-2);
+}
 
 /* ---- ECharts allocation donut + legend ---- */
 .alloc-donut {

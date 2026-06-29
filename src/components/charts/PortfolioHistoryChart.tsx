@@ -187,6 +187,31 @@ export function PortfolioHistoryChart({
           ))}
         </div>
       </div>
+      <div className="chart-legend">
+        {(viewMode === "value"
+          ? [
+              { label: "Market value", color: "var(--text)", dashed: false },
+              { label: "Cost basis", color: "var(--warn)", dashed: true },
+            ]
+          : [
+              { label: "Portfolio (TWR)", color: "var(--accent)", dashed: false },
+              ...(series.kse.length >= 2
+                ? [{ label: "KSE100", color: "var(--info)", dashed: false }]
+                : []),
+            ]
+        ).map((l) => (
+          <span key={l.label} className="legend-line">
+            <span
+              className={`legend-dash ${l.dashed ? "legend-dash--dashed" : ""}`}
+              style={{ borderColor: l.color }}
+            />
+            {l.label}
+          </span>
+        ))}
+        {viewMode === "twr" && series.kse.length < 2 ? (
+          <span className="legend-line legend-muted">KSE100 — needs 2+ snapshots</span>
+        ) : null}
+      </div>
       <div ref={containerRef} className="history-chart-canvas" />
     </div>
   );

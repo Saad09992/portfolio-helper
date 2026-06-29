@@ -169,3 +169,70 @@ export function computeSavingsStats(rows: InvestmentRow[]): SavingsStats {
     months,
   };
 }
+
+export type BenchmarkStats = {
+  ready: boolean;
+  /** Portfolio TWR return over the aligned window (fraction). */
+  portReturn: number;
+  /** KSE100 return over the same window (fraction). */
+  benchReturn: number;
+  /** portReturn - benchReturn (simple excess return). */
+  alpha: number;
+  /** cov(port, bench) / var(bench) of daily returns. */
+  beta: number;
+};
+
+const EMPTY_BENCH: BenchmarkStats = {
+  ready: false,
+  portReturn: 0,
+  benchReturn: 0,
+  alpha: 0,
+  beta: 0,
+};
+
+/**
+ * Portfolio-vs-KSE100 stats over snapshots that carry a `kse100` level.
+ * Portfolio side uses the flow-adjusted TWR index so deposits don't distort it.
+ */
+export function computeBenchmarkStats(snapshots: PortfolioSnapshot[]): BenchmarkStats {
+  const aligned = snapshots
+    .filter((s) => typeof s.kse100 === "number" && (s.kse100 as number) > 0)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (aligned.length < 3) return EMPTY_BENCH;
+
+  const twr = computeTwrIndex(aligned);
+  const kse = aligned.map((s) => s.kse100 as number);
+
+  const portRet: number[] = [];
+  const benchRet: number[] = [];
+  for (let i = 1; i < aligned.length; i++) {
+    if (twr[i - 1] > 0 && kse[i - 1] > 0) {
+      portRet.push(twr[i] / twr[i - 1] - 1);
+      benchRet.push(kse[i] / kse[i - 1] - 1);
+    }
+  }
+  if (portRet.length < 2) return EMPTY_BENCH;
+
+  const mean = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
+  const mp = mean(portRet);
+  const mb = mean(benchRet);
+  let cov = 0;
+  let varB = 0;
+  for (let i = 0; i < portRet.length; i++) {
+    cov += (portRet[i] - mp) * (benchRet[i] - mb);
+    varB += (benchRet[i] - mb) * (benchRet[i] - mb);
+  }
+  const beta = varB > 0 ? cov / varB : 0;
+
+  const portReturn = twr[twr.length - 1] / 100 - 1;
+  const benchReturn = kse[kse.length - 1] / kse[0] - 1;
+
+  return {
+    ready: true,
+    portReturn,
+    benchReturn,
+    alpha: portReturn - benchReturn,
+    beta,
+  };
+}

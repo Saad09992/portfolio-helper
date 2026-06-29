@@ -5,6 +5,7 @@ import { dirname } from "path";
 import { fetchWithTimeout, withRetry } from "./scrape-util.mjs";
 import { fetchQuoteSarmaaya, fetchDividendSarmaaya } from "./sarmaaya.mjs";
 import { searchCoins, fetchCryptoQuotes } from "./coingecko.mjs";
+import { fetchKse100 } from "./psx-index.mjs";
 
 const BACKUP_GENERATIONS = 5;
 
@@ -180,6 +181,22 @@ export function createApiMiddleware({ dbPath, portfolioPath }) {
       }
       Promise.all(tickers.map(fetchDividendResilient))
         .then((results) => sendJson(res, 200, results.filter(Boolean)))
+        .catch((err) => {
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    if (url.startsWith("/api/psx/benchmark")) {
+      const wantHistory = new URL(url, "http://localhost").searchParams.get("history");
+      fetchKse100()
+        .then((kse) => {
+          if (!kse) return sendJson(res, 200, null);
+          const body = wantHistory
+            ? kse
+            : { current: kse.current, asOf: kse.asOf, changePct: kse.changePct };
+          sendJson(res, 200, body);
+        })
         .catch((err) => {
           if (!res.headersSent) sendJson(res, 500, { error: String(err) });
         });

@@ -136,3 +136,40 @@ describe("computeSavingsStats", () => {
     expect(computeSavingsStats(rows).streak).toBe(1);
   });
 });
+
+import { computeBenchmarkStats } from "./analytics";
+
+function snapK(date: string, totalValue: number, totalCost: number, kse100: number): PortfolioSnapshot {
+  return { date, totalValue, totalCost, gainLoss: totalValue - totalCost, kse100 };
+}
+
+describe("computeBenchmarkStats", () => {
+  it("not ready with fewer than 3 kse-tagged snapshots", () => {
+    expect(computeBenchmarkStats([]).ready).toBe(false);
+    expect(computeBenchmarkStats([snapK("2026-01-01", 100, 100, 1000)]).ready).toBe(false);
+  });
+
+  it("computes alpha as portfolio minus benchmark return (no flows)", () => {
+    const snaps = [
+      snapK("2026-01-01", 100, 100, 1000),
+      snapK("2026-01-02", 110, 100, 1050),
+      snapK("2026-01-03", 120, 100, 1100),
+    ];
+    const b = computeBenchmarkStats(snaps);
+    expect(b.ready).toBe(true);
+    expect(b.portReturn).toBeCloseTo(0.2, 6); // 100 -> 120
+    expect(b.benchReturn).toBeCloseTo(0.1, 6); // 1000 -> 1100
+    expect(b.alpha).toBeCloseTo(0.1, 6);
+    expect(Number.isFinite(b.beta)).toBe(true);
+  });
+
+  it("beta ~1 when portfolio tracks the index 1:1", () => {
+    const snaps = [
+      snapK("2026-01-01", 1000, 1000, 1000),
+      snapK("2026-01-02", 1010, 1000, 1010),
+      snapK("2026-01-03", 1005, 1000, 1005),
+      snapK("2026-01-04", 1030, 1000, 1030),
+    ];
+    expect(computeBenchmarkStats(snaps).beta).toBeCloseTo(1, 2);
+  });
+});

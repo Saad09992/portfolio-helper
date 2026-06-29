@@ -3073,6 +3073,44 @@ th {
   color: var(--muted-2);
 }
 
+/* ---- Lightweight-Charts history panel ---- */
+.history-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.history-chart-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+.history-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.history-summary strong {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.history-updated {
+  color: var(--muted-2);
+  font-size: 0.66rem;
+}
+.history-chart-canvas {
+  width: 100%;
+  height: 300px;
+}
+
+/* ---- Exposure gauge row ---- */
+.gauge-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--s2);
+}
+
 /* ---- Fallback data-source badge ---- */
 .source-badge {
   display: inline-block;

@@ -6,6 +6,7 @@ import {
   savePortfolioBundle,
 } from "./api.mjs";
 import { fetchCryptoQuotes } from "./coingecko.mjs";
+import { fetchKse100 } from "./psx-index.mjs";
 import {
   computeTotals,
   pkDateOf,
@@ -136,9 +137,11 @@ export async function runDailySync({
   ];
 
   // Fetch both classes; crypto trades 24/7 so weekend snapshots still move.
-  const [stockQuotes, cryptoQuotes] = await Promise.all([
+  // Also grab the KSE100 level for the benchmark overlay.
+  const [stockQuotes, cryptoQuotes, kse] = await Promise.all([
     Promise.all(tickers.map(fetchQuoteResilient)).then((a) => a.filter(Boolean)),
     coinIds.length ? fetchCryptoQuotes(coinIds) : Promise.resolve([]),
+    fetchKse100().catch(() => null),
   ]);
 
   if (stockQuotes.length === 0 && cryptoQuotes.length === 0) {
@@ -217,6 +220,7 @@ export async function runDailySync({
   }
   const entry = {
     date: snapshotIso,
+    ...(kse && Number.isFinite(kse.current) ? { kse100: kse.current } : {}),
     totalValue: totals.totalValue,
     totalCost: totals.totalCost,
     gainLoss: totals.totalGainLoss,

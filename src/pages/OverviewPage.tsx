@@ -1,6 +1,6 @@
 import type { AssetClassBucket, CashBuckets, DerivedHolding } from "../types";
 import type { InvestmentSummary } from "../derivedTypes";
-import type { RiskMetrics } from "../analytics";
+import type { BenchmarkStats, RiskMetrics } from "../analytics";
 import type { PortfolioSnapshot } from "../utils";
 import {
   formatCurrency,
@@ -14,6 +14,9 @@ import { PieChart } from "../components/PieChart";
 import { RankedAllocation } from "../components/RankedAllocation";
 import { PortfolioHistoryChart } from "../components/charts/PortfolioHistoryChart";
 import { Treemap } from "../components/charts/Treemap";
+import { Heatmap, type HeatmapItem } from "../components/charts/Heatmap";
+import { ExposureGauges } from "../components/charts/ExposureGauges";
+import { RiskReturnScatter, type ScatterPoint } from "../components/charts/RiskReturnScatter";
 
 type TreemapItem = { key: string; label: string; value: number; weight: number };
 
@@ -41,6 +44,10 @@ export type OverviewPageProps = {
   valueSeries: number[];
   pnlSeries: number[];
   assetClassBuckets: AssetClassBucket[];
+  benchmarkStats: BenchmarkStats;
+  heatmapItems: HeatmapItem[];
+  scatterPoints: ScatterPoint[];
+  exposureGauges: { label: string; pct: number; cap: number }[];
 };
 
 function pctOrDash(ready: boolean, value: string): string {
@@ -71,8 +78,13 @@ export function OverviewPage({
   valueSeries,
   pnlSeries,
   assetClassBuckets,
+  benchmarkStats,
+  heatmapItems,
+  scatterPoints,
+  exposureGauges,
 }: OverviewPageProps) {
   const rm = riskMetrics;
+  const bm = benchmarkStats;
   return (
     <>
       <section className="stats-grid">
@@ -154,7 +166,53 @@ export function OverviewPage({
             <strong className="num negative">{rm.ready ? formatSignedPercent(rm.worstDay * 100, 2) : "—"}</strong>
             <span>Largest daily loss</span>
           </div>
+          <div className="kpi-tile">
+            <p>Alpha vs KSE100</p>
+            <strong className={`num ${bm.alpha >= 0 ? "positive" : "negative"}`}>
+              {bm.ready ? formatSignedPercent(bm.alpha * 100, 1) : "—"}
+            </strong>
+            <span>{bm.ready ? `you ${formatSignedPercent(bm.portReturn * 100, 1)} · idx ${formatSignedPercent(bm.benchReturn * 100, 1)}` : "Needs 3+ snapshots"}</span>
+          </div>
+          <div className="kpi-tile">
+            <p>Beta</p>
+            <strong className="num">{bm.ready ? bm.beta.toFixed(2) : "—"}</strong>
+            <span>vs KSE100</span>
+          </div>
         </div>
+      </section>
+
+      <section className="dashboard-grid dual">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="panel-kicker">Heatmap</p>
+              <h2>Day change · sized by weight</h2>
+            </div>
+            <span className="panel-meta">green up · red down</span>
+          </div>
+          <Heatmap items={heatmapItems} />
+        </article>
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="panel-kicker">Risk / return</p>
+              <h2>Per-position scatter</h2>
+            </div>
+            <span className="panel-meta">x risk · y return · size weight</span>
+          </div>
+          <RiskReturnScatter points={scatterPoints} />
+        </article>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header compact">
+          <div>
+            <p className="panel-kicker">Exposure</p>
+            <h2>Concentration gauges</h2>
+          </div>
+          <span className="panel-meta">vs soft caps</span>
+        </div>
+        <ExposureGauges gauges={exposureGauges} />
       </section>
 
       <section className="stats-grid secondary">

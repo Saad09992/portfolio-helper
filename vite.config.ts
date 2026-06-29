@@ -27,4 +27,17 @@ export default defineConfig({
       },
     },
   ],
+  build: {
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        // Split heavy chart libs into their own cached chunks so the app shell
+        // and one big library don't share a single oversized bundle.
+        manualChunks: {
+          echarts: ["echarts/core", "echarts/charts", "echarts/components", "echarts/renderers"],
+          "lightweight-charts": ["lightweight-charts"],
+        },
+      },
+    },
+  },
 });

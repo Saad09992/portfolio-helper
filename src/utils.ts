@@ -232,6 +232,8 @@ export type PortfolioSnapshot = {
   totalCost: number;
   gainLoss: number;
   shares?: Record<string, number>;
+  /** KSE100 index level captured with this snapshot (benchmark overlay). */
+  kse100?: number;
 };
 
 // Upsert `entry` into daily portfolio history, keyed by its PKT calendar day.

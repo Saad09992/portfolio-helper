@@ -22,6 +22,7 @@ import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchMarketData } from "./services/psx-scraper";
 import type { HoldingSources, MarketQuote } from "./services/psx-scraper";
 import { fetchCryptoMarketData } from "./services/crypto";
+import { fetchBenchmark } from "./services/benchmark";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
 import { ANALYTICS, DRIFT, REBALANCE, TARGET_DEFAULTS, UI_LIMITS } from "./constants";
 import { computeRiskMetrics } from "./analytics";
@@ -41,7 +42,7 @@ import {
   getCashDeploymentIdea,
   normalizeHolding,
 } from "./portfolio/holdings";
-import { computeSavingsStats } from "./analytics";
+import { computeSavingsStats, computeBenchmarkStats } from "./analytics";
 import {
   cashStorageKey,
   historyStorageKey,
@@ -609,6 +610,46 @@ function App() {
     [investmentRows],
   );
 
+  const benchmarkStats = useMemo(() => computeBenchmarkStats(history), [history]);
+
+  const heatmapItems = useMemo(
+    () =>
+      nonCashPortfolio.map((h) => ({
+        ticker: h.ticker,
+        group: h.assetClass === "crypto" ? "Crypto" : h.sector || "Uncategorized",
+        value: h.marketValue,
+        weight: h.weight,
+        dayChangePct: h.dayChangePct,
+      })),
+    [nonCashPortfolio],
+  );
+
+  const scatterPoints = useMemo(
+    () =>
+      nonCashPortfolio
+        .filter((h) => h.costValue > 0)
+        .map((h) => ({
+          ticker: h.ticker,
+          risk: Math.abs(h.dayChangePct),
+          ret: (h.gainLoss / h.costValue) * 100,
+          weight: h.weight,
+          assetClass: (h.assetClass === "crypto" ? "crypto" : "stock") as "stock" | "crypto",
+        })),
+    [nonCashPortfolio],
+  );
+
+  const topWeight = topHolding?.weight ?? 0;
+  const cryptoWeight =
+    assetClassBuckets.find((b) => b.assetClass === "crypto")?.weight ?? 0;
+  const exposureGauges = useMemo(
+    () => [
+      { label: "CRYPTO %", pct: cryptoWeight * 100, cap: 25 },
+      { label: "CASH %", pct: cashWeight * 100, cap: 20 },
+      { label: "TOP POS %", pct: topWeight * 100, cap: 20 },
+    ],
+    [cryptoWeight, cashWeight, topWeight],
+  );
+
   const waterfallRows = [...nonCashPortfolio]
     .sort((left, right) => Math.abs(right.gainLoss) - Math.abs(left.gainLoss))
     .slice(0, UI_LIMITS.WATERFALL_TOP_N);
@@ -935,6 +976,7 @@ function App() {
       // their last close on non-trading days.
       const { afterClose } = psxCloseStatus();
       if (afterClose) {
+        const bench = await fetchBenchmark().catch(() => null);
         const shares: Record<string, number> = {};
         for (const h of updated) {
           if (!h.id.startsWith("cash-")) shares[h.ticker.toUpperCase()] = h.shares;
@@ -945,6 +987,7 @@ function App() {
           totalCost: snapshot.totalCost,
           gainLoss: snapshot.totalGainLoss,
           shares,
+          ...(bench && { kse100: bench.current }),
         };
         setHistory((cur) => upsertDailySnapshot(cur, entry, pkDateOf));
       }
@@ -1149,6 +1192,10 @@ function App() {
           valueSeries={valueSeries}
           pnlSeries={pnlSeries}
           assetClassBuckets={assetClassBuckets}
+          benchmarkStats={benchmarkStats}
+          heatmapItems={heatmapItems}
+          scatterPoints={scatterPoints}
+          exposureGauges={exposureGauges}
         />
       )}
 

@@ -24,6 +24,7 @@ export function normalizeTarget(t: TargetAllocation): TargetAllocation {
 
 export const cashStorageKey = `${storageKey}:cash-buckets`;
 export const targetStorageKey = `${storageKey}:targets`;
+export const targetPresetStorageKey = `${storageKey}:target-presets`;
 export const investStorageKey = `${storageKey}:investments`;
 export const historyStorageKey = `${storageKey}:history`;
 export const lastFetchedStorageKey = `${storageKey}:last-fetched`;
@@ -76,6 +77,30 @@ export function loadTargets(): TargetAllocation[] {
   } catch {
     return [];
   }
+}
+
+export type TargetPreset = { name: string; targets: TargetAllocation[] };
+
+export function loadTargetPresets(): TargetPreset[] {
+  if (typeof window === "undefined") return [];
+
+  const raw = window.localStorage.getItem(targetPresetStorageKey);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as TargetPreset[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((p) => p && typeof p.name === "string" && Array.isArray(p.targets))
+      .map((p) => ({ name: p.name, targets: p.targets.map(normalizeTarget) }));
+  } catch {
+    return [];
+  }
+}
+
+export function saveTargetPresets(presets: TargetPreset[]): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(targetPresetStorageKey, JSON.stringify(presets));
 }
 
 export function loadInvestments(): InvestmentEntry[] {

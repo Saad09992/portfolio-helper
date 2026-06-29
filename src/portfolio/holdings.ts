@@ -6,20 +6,32 @@ import type {
 } from "../types";
 
 export function normalizeHolding(holding: Holding): Holding {
+  const assetClass =
+    holding.assetClass === "crypto"
+      ? "crypto"
+      : holding.assetClass === "metal"
+        ? "metal"
+        : "stock";
   return {
     ...holding,
     dayChangePct: Number(holding.dayChangePct ?? 0),
     dividendPerShare: Number(holding.dividendPerShare ?? 0),
     payoutDate: holding.payoutDate ?? "",
-    assetClass: holding.assetClass === "crypto" ? "crypto" : "stock",
+    assetClass,
     coinId: holding.coinId ?? "",
+    ...(assetClass === "metal" && {
+      metalId: holding.metalId ?? "gold",
+      unit: holding.unit ?? "tola",
+    }),
   };
 }
 
 /** Display label for a holding's asset class, treating synthetic cash specially. */
 export function assetClassLabel(holding: { id: string; assetClass?: string }): string {
   if (holding.id.startsWith("cash-")) return "cash";
-  return holding.assetClass === "crypto" ? "crypto" : "stock";
+  if (holding.assetClass === "crypto") return "crypto";
+  if (holding.assetClass === "metal") return "metal";
+  return "stock";
 }
 
 export function buildHoldingsWithCash(

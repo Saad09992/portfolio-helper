@@ -1,7 +1,7 @@
 import type { Holding, Payout } from "../types";
 import { apiFetch } from "./api-url";
 
-export type QuoteSource = "dps" | "sarmaaya" | "coingecko" | string;
+export type QuoteSource = "dps" | "sarmaaya" | "coingecko" | "gold-api" | string;
 
 export type MarketQuote = {
   ticker: string;
@@ -10,7 +10,9 @@ export type MarketQuote = {
   source?: QuoteSource;
   /** Set for crypto quotes — match key (stocks match by ticker). */
   coinId?: string;
-  /** Native USD price for crypto secondary label. */
+  /** Set for metal quotes — match key (gold/silver). */
+  metalId?: string;
+  /** Native USD price (crypto: per-coin; metal: per-gram) for secondary label. */
   usdPrice?: number;
 };
 
@@ -75,11 +77,13 @@ export function applyMarketData(
   quotes: MarketQuote[],
   dividends: DividendInfo[],
 ): { holdings: Holding[]; matched: number; sources: HoldingSources } {
-  // Stocks match by ticker; crypto match by CoinGecko id.
+  // Stocks match by ticker; crypto by CoinGecko id; metals by metalId.
   const byTicker = new Map<string, MarketQuote>();
   const byCoinId = new Map<string, MarketQuote>();
+  const byMetalId = new Map<string, MarketQuote>();
   for (const quote of quotes) {
     if (quote.coinId) byCoinId.set(quote.coinId, quote);
+    if (quote.metalId) byMetalId.set(quote.metalId, quote);
     if (quote.ticker) byTicker.set(quote.ticker.toUpperCase(), quote);
   }
 
@@ -95,15 +99,20 @@ export function applyMarketData(
     if (holding.id.startsWith("cash-")) return holding;
 
     const isCrypto = holding.assetClass === "crypto";
+    const isMetal = holding.assetClass === "metal";
     const quote = isCrypto
       ? holding.coinId
         ? byCoinId.get(holding.coinId)
         : undefined
-      : byTicker.get(holding.ticker.toUpperCase());
+      : isMetal
+        ? holding.metalId
+          ? byMetalId.get(holding.metalId)
+          : undefined
+        : byTicker.get(holding.ticker.toUpperCase());
     if (!quote) return holding;
 
     matched++;
-    const div = isCrypto ? undefined : divMap.get(holding.ticker.toUpperCase());
+    const div = isCrypto || isMetal ? undefined : divMap.get(holding.ticker.toUpperCase());
 
     sources[holding.ticker.toUpperCase()] = {
       price: quote.source,

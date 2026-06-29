@@ -3196,6 +3196,37 @@ th {
   background: var(--accent-dim);
   color: var(--accent);
 }
+.class-tag--metal {
+  border-color: rgba(255, 179, 0, 0.5);
+  background: rgba(255, 179, 0, 0.12);
+  color: #fbbf24;
+}
+
+/* Metal quantity cell — editable qty + unit switcher */
+.metal-qty-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.metal-qty-input {
+  width: 64px;
+  text-align: right;
+}
+.metal-unit-select {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.7rem;
+  padding: 1px 2px;
+  cursor: pointer;
+}
+.metal-unit-select:hover {
+  border-color: var(--panel-border-strong);
+  background: var(--panel-2);
+  color: var(--text);
+}
 .usd-secondary,
 .pkr-secondary {
   color: var(--muted-2);
@@ -3233,4 +3264,257 @@ th {
 .class-alloc-value {
   font-size: 0.72rem;
   color: var(--muted);
+}
+
+/* ===== Targets dashboard (Bloomberg revamp) ===== */
+.targets-dashboard .stats-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.targets-dashboard .stat-card strong {
+  font-size: clamp(1.1rem, 1.5vw, 1.5rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.targets-dashboard .stat-card p {
+  margin-bottom: 10px;
+  font-size: 0.72rem;
+}
+@media (max-width: 1100px) {
+  .targets-dashboard .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.button-sm {
+  padding: 6px 12px;
+  font-size: 0.78rem;
+}
+
+/* Coverage validator banner */
+.coverage-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-2);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.coverage-banner strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.coverage-banner-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+.coverage-banner--warn {
+  border-color: rgba(255, 179, 0, 0.5);
+  background: rgba(255, 179, 0, 0.08);
+}
+.coverage-banner--warn .coverage-banner-dot {
+  background: var(--warn);
+}
+.coverage-sep {
+  color: var(--muted-2);
+  padding: 0 4px;
+}
+.coverage-banner-flag {
+  margin-left: auto;
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* Preset bar */
+.preset-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  align-items: center;
+}
+.preset-input,
+.preset-select {
+  border: 1px solid rgba(42, 51, 64, 0.2);
+  border-radius: 10px;
+  padding: 6px 10px;
+  color: var(--text);
+  background: rgba(4, 8, 18, 0.65);
+  font-size: 0.8rem;
+  outline: none;
+}
+.preset-input:focus,
+.preset-select:focus {
+  border-color: rgba(0, 230, 118, 0.5);
+}
+.preset-input {
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+.preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-2);
+  font-size: 0.74rem;
+  color: var(--text);
+}
+.preset-chip-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.preset-chip-del:hover {
+  color: var(--neg);
+}
+
+/* Rebalance turnover summary */
+.turnover-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--panel-border);
+}
+.turnover-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.turnover-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.turnover-label.buy {
+  color: var(--pos);
+}
+.turnover-label.sell {
+  color: var(--neg);
+}
+.turnover-stat .num {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.turnover-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* Cash-aware rebalance funding */
+.fund-warn {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 179, 0, 0.5);
+  background: rgba(255, 179, 0, 0.08);
+  color: var(--warn);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.rebalance-buy {
+  position: relative;
+}
+.fund-flag {
+  display: inline-block;
+  margin: -4px 0 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid rgba(255, 179, 0, 0.45);
+  background: rgba(255, 179, 0, 0.1);
+  color: var(--warn);
+}
+.fund-flag--none {
+  border-color: rgba(255, 82, 82, 0.5);
+  background: rgba(255, 82, 82, 0.1);
+  color: var(--neg);
+}
+
+/* Target donut legend head */
+.target-donut-legend-head {
+  margin: 0 0 4px;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-2);
+}
+
+/* Dense drift table */
+.target-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.target-table thead th {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.62rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--panel-border-strong);
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.target-table tbody td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--panel-border);
+  border-left: 2px solid transparent;
+  vertical-align: middle;
+}
+.target-table tbody tr:hover td {
+  background: var(--panel-2);
+}
+.target-row--critical td:first-child {
+  border-left-color: var(--neg);
+}
+.target-row--warn td:first-child {
+  border-left-color: var(--warn);
+}
+.target-row--ontrack td:first-child {
+  border-left-color: var(--pos);
+}
+.target-table .inline-edit--threshold {
+  width: 52px;
+  text-align: right;
+}
+.target-table .drift-cadence-select {
+  font-size: 0.74rem;
+}
+.target-row-actions {
+  display: inline-flex;
+  gap: 4px;
+  justify-content: flex-end;
 }

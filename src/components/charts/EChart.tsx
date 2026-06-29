@@ -25,10 +25,13 @@ export function EChart({
   option,
   height = 300,
   className,
+  onInit,
 }: {
   option: EChartsCoreOption;
   height?: number;
   className?: string;
+  /** Called once with the chart instance after init (attach events, keep a ref). */
+  onInit?: (chart: echarts.ECharts) => void;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -47,6 +50,7 @@ export function EChart({
       height: Math.max(1, Math.floor(rect.height)),
     });
     chartRef.current = chart;
+    onInit?.(chart);
     const resize = () => {
       const r = box.getBoundingClientRect();
       chart.resize({ width: Math.max(1, Math.floor(r.width)), height: Math.max(1, Math.floor(r.height)) });

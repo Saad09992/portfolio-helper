@@ -4,7 +4,13 @@ export type Payout = {
   dividendPerShare: number;
 };
 
-export type AssetClass = "stock" | "crypto";
+export type AssetClass = "stock" | "crypto" | "metal";
+
+/** Precious-metal identifier — also the spot-quote match key. */
+export type MetalId = "gold" | "silver";
+
+/** Weight unit for metals. Quantity is stored canonically in grams. */
+export type MetalUnit = "tola" | "ounce" | "gram";
 
 export type Holding = {
   id: string;
@@ -19,14 +25,21 @@ export type Holding = {
   dividendPerShare: number;
   payoutDate: string;
   payouts?: Payout[];
-  /** "stock" (PSX) or "crypto". Defaults to "stock" for legacy data. */
+  /** "stock" (PSX), "crypto", or "metal". Defaults to "stock" for legacy data. */
   assetClass?: AssetClass;
   /** CoinGecko id — crypto price match key (stocks match by ticker). */
   coinId?: string;
-  /** Last known native USD price (crypto primary display). */
+  /** Last known native USD price (crypto: per-coin; metal: per-gram). */
   usdPrice?: number;
   /** Native USD average cost (crypto primary; entered Binance-style). */
   usdCostBasis?: number;
+  /** Metal spot match key (gold/silver). Metals only. */
+  metalId?: MetalId;
+  /**
+   * Display + entry unit for a metal holding. `shares` always holds the
+   * canonical gram quantity; `price`/`costBasis` are always PKR per gram.
+   */
+  unit?: MetalUnit;
 };
 
 export type DerivedHolding = Holding & {

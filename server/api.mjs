@@ -73,9 +73,9 @@ export async function fetchQuote(ticker) {
 
     const signM = block.match(/quote__change\s+change__text--(pos|neg)/i);
     const pctM = block.match(
-      /change__percent[^>]*>\s*\(\s*([0-9.]+)\s*%\s*\)/i,
+      /change__percent[^>]*>\s*\(\s*(-?[0-9.]+)\s*%\s*\)/i,
     );
-    let changePct = pctM ? parseFloat(pctM[1]) : 0;
+    let changePct = pctM ? Math.abs(parseFloat(pctM[1])) : 0;
     if (signM && signM[1] === "neg") changePct = -changePct;
 
     const dateM = html.match(/quote__date[^>]*>\s*\^?\s*As of\s*([^<]+)/i);

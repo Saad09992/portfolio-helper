@@ -181,7 +181,7 @@ export function OverviewPage({
         </div>
       </section>
 
-      <section className="dashboard-grid dual">
+      <section className="dashboard-grid">
         <article className="panel">
           <div className="panel-header">
             <div>
@@ -259,7 +259,7 @@ export function OverviewPage({
         <PortfolioHistoryChart snapshots={history} lastFetchedIso={lastFetchedAt} />
       </section>
 
-      <section className="dashboard-grid dual">
+      <section className="dashboard-grid">
         <article className="panel chart-panel">
           <div className="panel-header">
             <div>

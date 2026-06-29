@@ -67,5 +67,5 @@ export function Heatmap({ items }: { items: HeatmapItem[] }) {
   }, [items]);
 
   if (items.length === 0) return <div className="chart-empty">No holdings yet</div>;
-  return <EChart option={option} height={320} />;
+  return <EChart option={option} height={380} />;
 }

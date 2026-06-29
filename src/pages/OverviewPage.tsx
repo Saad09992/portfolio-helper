@@ -10,10 +10,10 @@ import {
 } from "../utils";
 import { StatCard } from "../components/ui/StatCard";
 import { Sparkline } from "../components/ui/Sparkline";
-import { PieChart } from "../components/PieChart";
 import { RankedAllocation } from "../components/RankedAllocation";
 import { PortfolioHistoryChart } from "../components/charts/PortfolioHistoryChart";
-import { Treemap } from "../components/charts/Treemap";
+import { AllocationDonut } from "../components/charts/AllocationDonut";
+import { AllocationTreemap } from "../components/charts/AllocationTreemap";
 import { Heatmap, type HeatmapItem } from "../components/charts/Heatmap";
 import { ExposureGauges } from "../components/charts/ExposureGauges";
 import { RiskReturnScatter, type ScatterPoint } from "../components/charts/RiskReturnScatter";
@@ -273,7 +273,7 @@ export function OverviewPage({
             </span>
           </div>
           {fetching ? <div className="chart-skeleton" aria-hidden="true" /> : null}
-          <PieChart holdings={portfolio.holdings} />
+          <AllocationDonut holdings={portfolio.holdings} />
         </article>
 
         <article className="panel">
@@ -329,7 +329,7 @@ export function OverviewPage({
             </div>
           </div>
           {allocationView === "map" ? (
-            <Treemap items={treemapItems} />
+            <AllocationTreemap items={treemapItems} />
           ) : (
             <RankedAllocation items={treemapItems} />
           )}

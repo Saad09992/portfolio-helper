@@ -14,18 +14,11 @@ export type HeatmapItem = {
 export function Heatmap({ items }: { items: HeatmapItem[] }) {
   const option = useMemo<EChartsCoreOption>(() => {
     const t = chartTokens();
-    const groups = new Map<string, HeatmapItem[]>();
-    for (const it of items) {
-      const g = groups.get(it.group) ?? [];
-      g.push(it);
-      groups.set(it.group, g);
-    }
-    const data = [...groups.entries()].map(([group, children]) => ({
-      name: group,
-      children: children.map((c) => ({
-        name: c.ticker,
-        value: [c.value, c.dayChangePct],
-      })),
+    // Flat: one tile per holding (so small positions like crypto always show),
+    // sized by value, colored by day %.
+    const data = items.map((c) => ({
+      name: c.ticker,
+      value: [c.value, c.dayChangePct],
     }));
 
     return {
@@ -55,24 +48,18 @@ export function Heatmap({ items }: { items: HeatmapItem[] }) {
           breadcrumb: { show: false },
           width: "100%",
           height: "100%",
+          visibleMin: 1,
           label: {
+            show: true,
             color: t.text,
             fontFamily: t.fontMono,
             fontSize: 10,
-            formatter: "{b}",
-          },
-          upperLabel: {
-            show: true,
-            height: 16,
-            color: t.muted,
-            fontFamily: t.fontMono,
-            fontSize: 9,
+            formatter: (info: { name: string; value: number | number[] }) => {
+              const v = Array.isArray(info.value) ? info.value[1] : 0;
+              return `${info.name}\n${v >= 0 ? "+" : ""}${Number(v).toFixed(1)}%`;
+            },
           },
           itemStyle: { borderColor: t.bg, borderWidth: 1, gapWidth: 1 },
-          levels: [
-            { itemStyle: { borderColor: t.bg, borderWidth: 2, gapWidth: 2 } },
-            { itemStyle: { borderColor: t.border, borderWidth: 1, gapWidth: 1 } },
-          ],
           data,
         },
       ],

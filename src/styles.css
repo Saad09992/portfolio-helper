@@ -3104,6 +3104,17 @@ th {
   height: 300px;
 }
 
+/* ---- ECharts allocation donut + legend ---- */
+.alloc-donut {
+  display: grid;
+  grid-template-columns: 1fr minmax(120px, 0.7fr);
+  gap: var(--s3);
+  align-items: center;
+}
+@media (max-width: 560px) {
+  .alloc-donut { grid-template-columns: 1fr; }
+}
+
 /* ---- Exposure gauge row ---- */
 .gauge-row {
   display: grid;

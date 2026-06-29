@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import * as echarts from "echarts/core";
-import { GaugeChart, TreemapChart, ScatterChart } from "echarts/charts";
+import { GaugeChart, TreemapChart, ScatterChart, PieChart } from "echarts/charts";
 import {
   TooltipComponent,
   VisualMapComponent,
@@ -13,6 +13,7 @@ echarts.use([
   GaugeChart,
   TreemapChart,
   ScatterChart,
+  PieChart,
   TooltipComponent,
   VisualMapComponent,
   GridComponent,

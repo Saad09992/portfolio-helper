@@ -30,17 +30,30 @@ export function EChart({
   height?: number;
   className?: string;
 }) {
+  const boxRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
 
   useEffect(() => {
-    if (!ref.current) return;
-    const chart = echarts.init(ref.current, undefined, { renderer: "canvas" });
+    const box = boxRef.current;
+    const el = ref.current;
+    if (!box || !el) return;
+    // Init against the absolutely-filled inner node and pass the box's measured
+    // size explicitly so ECharts never sizes the canvas larger than the panel.
+    const rect = box.getBoundingClientRect();
+    const chart = echarts.init(el, undefined, {
+      renderer: "canvas",
+      width: Math.max(1, Math.floor(rect.width)),
+      height: Math.max(1, Math.floor(rect.height)),
+    });
     chartRef.current = chart;
-    const ro = new ResizeObserver(() => chart.resize());
-    ro.observe(ref.current);
-    // Correct the size once layout has settled (init can measure pre-layout).
-    const raf = requestAnimationFrame(() => chart.resize());
+    const resize = () => {
+      const r = box.getBoundingClientRect();
+      chart.resize({ width: Math.max(1, Math.floor(r.width)), height: Math.max(1, Math.floor(r.height)) });
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(box);
+    const raf = requestAnimationFrame(resize);
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
@@ -55,9 +68,11 @@ export function EChart({
 
   return (
     <div
-      ref={ref}
+      ref={boxRef}
       className={className}
-      style={{ width: "100%", height, minWidth: 0, overflow: "hidden" }}
-    />
+      style={{ position: "relative", width: "100%", height, minWidth: 0, overflow: "hidden" }}
+    >
+      <div ref={ref} style={{ position: "absolute", inset: 0 }} />
+    </div>
   );
 }

@@ -697,8 +697,16 @@ button {
   cursor: pointer;
 }
 
-.legend-row--active {
+.legend-row--active,
+.legend-row:hover,
+.legend-row:focus-visible {
   background: rgba(0, 230, 118, 0.08);
+  outline: none;
+}
+
+.legend-row:hover .legend-swatch,
+.legend-row:focus-visible .legend-swatch {
+  transform: scale(1.4);
 }
 
 .legend-row--dim {
@@ -3142,13 +3150,6 @@ th {
   .alloc-donut { grid-template-columns: 1fr; }
 }
 
-/* ---- Exposure gauge row ---- */
-.gauge-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: var(--s2);
-}
-
 /* ---- Fallback data-source badge ---- */
 .source-badge {
   display: inline-block;
@@ -3165,105 +3166,69 @@ th {
   vertical-align: middle;
 }
 
-/* ---- Multi-asset: class tags, filters, allocation strip ---- */
-.asset-class-toggle {
-  margin-bottom: var(--s3);
-}
+/* ---- Holdings table ---- */
 .holdings-controls {
   display: flex;
   align-items: center;
   gap: var(--s3);
   flex-wrap: wrap;
 }
-.class-tag {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--panel-border-strong);
-  font-family: var(--font-mono);
-  font-size: 0.58rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.class-tag--crypto {
-  border-color: rgba(167, 139, 250, 0.5);
-  background: rgba(167, 139, 250, 0.12);
-  color: #c4b5fd;
-}
-.class-tag--stock {
-  border-color: rgba(0, 230, 118, 0.4);
-  background: var(--accent-dim);
-  color: var(--accent);
-}
-.class-tag--metal {
-  border-color: rgba(255, 179, 0, 0.5);
-  background: rgba(255, 179, 0, 0.12);
-  color: #fbbf24;
-}
 
-/* Metal quantity cell — editable qty + unit switcher */
-.metal-qty-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  justify-content: flex-end;
+/* ---- Growth vs Deposits chart ---- */
+.gvd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s3) 0;
 }
-.metal-qty-input {
-  width: 64px;
-  text-align: right;
-}
-.metal-unit-select {
-  border: 1px solid transparent;
+.gvd-bar {
+  display: flex;
+  width: 100%;
+  height: 22px;
   border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.7rem;
-  padding: 1px 2px;
-  cursor: pointer;
-}
-.metal-unit-select:hover {
-  border-color: var(--panel-border-strong);
+  overflow: hidden;
   background: var(--panel-2);
-  color: var(--text);
-}
-.usd-secondary,
-.pkr-secondary {
-  color: var(--muted-2);
-  font-family: var(--font-mono);
-  font-weight: 400;
-}
-.class-alloc {
-  display: flex;
-  gap: var(--s2);
-  flex-wrap: wrap;
-}
-.class-alloc-pill {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s2);
-  padding: var(--s2) var(--s3);
   border: 1px solid var(--panel-border);
-  border-left-width: 3px;
-  border-radius: var(--radius);
-  background: var(--panel);
 }
-.class-alloc--stock { border-left-color: var(--accent); }
-.class-alloc--crypto { border-left-color: #a78bfa; }
-.class-alloc--cash { border-left-color: var(--muted-2); }
-.class-alloc-name {
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 0.62rem;
+.gvd-seg {
+  height: 100%;
+  transition: width 0.25s ease;
+}
+.gvd-seg--deposits { background: var(--accent); }
+.gvd-seg--gain { background: var(--info); }
+.gvd-seg--loss { background: var(--negative, #ef4444); }
+.gvd-legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  font-size: 0.78rem;
+}
+.gvd-legend-row {
+  display: grid;
+  grid-template-columns: 14px 1fr auto auto;
+  align-items: center;
+  gap: var(--s2);
+}
+.gvd-legend-total {
+  border-top: 1px solid var(--panel-border);
+  padding-top: var(--s2);
+  grid-template-columns: 14px 1fr auto;
+}
+.gvd-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.gvd-swatch--deposits { background: var(--accent); }
+.gvd-swatch--gain { background: var(--info); }
+.gvd-swatch--loss { background: var(--negative, #ef4444); }
+.gvd-legend-label { color: var(--muted); }
+.gvd-legend-val { font-weight: 600; }
+.gvd-legend-pct {
   color: var(--muted);
-}
-.class-alloc-weight {
-  font-size: 1rem;
-  font-weight: 600;
-}
-.class-alloc-value {
+  font-family: var(--font-mono);
   font-size: 0.72rem;
-  color: var(--muted);
 }
 
 /* ===== Targets dashboard (Bloomberg revamp) ===== */

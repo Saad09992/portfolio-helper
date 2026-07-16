@@ -22,12 +22,16 @@ function dayKey(iso: string): string {
   return iso.slice(0, 10);
 }
 
+export type ContributionPoint = { time: string; value: number };
+
 export function PortfolioHistoryChart({
   snapshots,
   lastFetchedIso,
+  contributions,
 }: {
   snapshots: PortfolioSnapshot[];
   lastFetchedIso?: string | null;
+  contributions?: ContributionPoint[];
 }) {
   const [viewMode, setViewMode] = useState<ViewMode>("value");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,8 +57,26 @@ export function PortfolioHistoryChart({
       base > 0
         ? kseRows.map((s) => ({ time: t(s.date), value: ((s.kse100 as number) / base) * 100 }))
         : [];
-    return { value, cost, twr, kse };
-  }, [rows]);
+    // Contributions: cumulative deposit ledger aligned to history's day grid.
+    // Emit a step per snapshot day carrying the latest cumulative value <= that day.
+    const contribInput = (contributions ?? [])
+      .filter((c) => c.time && Number.isFinite(c.value))
+      .sort((a, b) => a.time.localeCompare(b.time));
+    const contrib: { time: UTCTimestamp; value: number }[] = [];
+    if (contribInput.length && rows.length) {
+      let idx = 0;
+      let running = 0;
+      for (const row of rows) {
+        const day = dayKey(row.date);
+        while (idx < contribInput.length && contribInput[idx].time <= day) {
+          running = contribInput[idx].value;
+          idx++;
+        }
+        contrib.push({ time: t(row.date), value: running });
+      }
+    }
+    return { value, cost, twr, kse, contrib };
+  }, [rows, contributions]);
 
   const summary = useMemo(() => {
     const last = rows[rows.length - 1];
@@ -118,6 +140,16 @@ export function PortfolioHistoryChart({
       });
       cost.setData(series.cost);
       created.push(cost);
+      if (series.contrib.length >= 2) {
+        const contrib = chart.addSeries(LineSeries, {
+          color: t.info,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          priceLineVisible: false,
+        });
+        contrib.setData(series.contrib);
+        created.push(contrib);
+      }
     } else {
       const twr = chart.addSeries(LineSeries, {
         color: t.accent,
@@ -192,6 +224,9 @@ export function PortfolioHistoryChart({
           ? [
               { label: "Market value", color: "var(--text)", dashed: false },
               { label: "Cost basis", color: "var(--warn)", dashed: true },
+              ...(series.contrib.length >= 2
+                ? [{ label: "Invested (ledger)", color: "var(--info)", dashed: true }]
+                : []),
             ]
           : [
               { label: "Portfolio (TWR)", color: "var(--accent)", dashed: false },

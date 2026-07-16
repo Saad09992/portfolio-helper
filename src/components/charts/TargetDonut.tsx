@@ -70,6 +70,7 @@ export function TargetDonut({
     return {
       backgroundColor: "transparent",
       tooltip: {
+        confine: true,
         backgroundColor: t.panel,
         borderColor: t.border,
         textStyle: { color: t.text, fontFamily: t.fontMono, fontSize: 11 },

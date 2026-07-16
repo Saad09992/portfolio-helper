@@ -1,6 +1,6 @@
-import type { AssetClassBucket, CashBuckets, DerivedHolding } from "../types";
+import type { CashBuckets, DerivedHolding } from "../types";
 import type { InvestmentSummary } from "../derivedTypes";
-import type { BenchmarkStats, RiskMetrics } from "../analytics";
+import type { BenchmarkStats, RiskMetrics, SavingsStats } from "../analytics";
 import type { PortfolioSnapshot } from "../utils";
 import {
   formatCurrency,
@@ -11,29 +11,33 @@ import {
 import { StatCard } from "../components/ui/StatCard";
 import { Sparkline } from "../components/ui/Sparkline";
 import { RankedAllocation } from "../components/RankedAllocation";
-import { PortfolioHistoryChart } from "../components/charts/PortfolioHistoryChart";
+import {
+  PortfolioHistoryChart,
+  type ContributionPoint,
+} from "../components/charts/PortfolioHistoryChart";
 import { AllocationDonut } from "../components/charts/AllocationDonut";
 import { AllocationTreemap } from "../components/charts/AllocationTreemap";
 import { Heatmap, type HeatmapItem } from "../components/charts/Heatmap";
-import { ExposureGauges } from "../components/charts/ExposureGauges";
-import { RiskReturnScatter, type ScatterPoint } from "../components/charts/RiskReturnScatter";
+import { GrowthVsDeposits } from "../components/charts/GrowthVsDeposits";
 
 type TreemapItem = { key: string; label: string; value: number; weight: number };
 
 export type OverviewPageProps = {
   equityMarketValue: number;
-  totalInvested: number;
+  costBasis: number;
   nonCashCount: number;
   portfolio: { totalValue: number; totalGainLoss: number; holdings: DerivedHolding[] };
   topHolding?: DerivedHolding;
   cashDraft: CashBuckets;
   cashWeight: number;
   investmentSummary: InvestmentSummary;
+  savingsStats: SavingsStats;
+  contributionSeries: ContributionPoint[];
   history: PortfolioSnapshot[];
   lastFetchedAt: string | null;
   fetching: boolean;
-  treemapMode: "sector" | "ticker" | "assetClass";
-  setTreemapMode: (mode: "sector" | "ticker" | "assetClass") => void;
+  treemapMode: "sector" | "ticker";
+  setTreemapMode: (mode: "sector" | "ticker") => void;
   allocationView: "map" | "ranked";
   setAllocationView: (view: "map" | "ranked") => void;
   treemapItems: TreemapItem[];
@@ -43,11 +47,8 @@ export type OverviewPageProps = {
   riskMetrics: RiskMetrics;
   valueSeries: number[];
   pnlSeries: number[];
-  assetClassBuckets: AssetClassBucket[];
   benchmarkStats: BenchmarkStats;
   heatmapItems: HeatmapItem[];
-  scatterPoints: ScatterPoint[];
-  exposureGauges: { label: string; pct: number; cap: number }[];
 };
 
 function pctOrDash(ready: boolean, value: string): string {
@@ -56,13 +57,15 @@ function pctOrDash(ready: boolean, value: string): string {
 
 export function OverviewPage({
   equityMarketValue,
-  totalInvested,
+  costBasis,
   nonCashCount,
   portfolio,
   topHolding,
   cashDraft,
   cashWeight,
   investmentSummary,
+  savingsStats,
+  contributionSeries,
   history,
   lastFetchedAt,
   fetching,
@@ -77,14 +80,15 @@ export function OverviewPage({
   riskMetrics,
   valueSeries,
   pnlSeries,
-  assetClassBuckets,
   benchmarkStats,
   heatmapItems,
-  scatterPoints,
-  exposureGauges,
 }: OverviewPageProps) {
   const rm = riskMetrics;
   const bm = benchmarkStats;
+  const investedDetail =
+    investmentSummary.count > 0
+      ? `${investmentSummary.count} Invest entr${investmentSummary.count === 1 ? "y" : "ies"} · ${formatSignedPercent(investmentSummary.pnlPct, 1)} P/L`
+      : "Add entries in Invest tab";
   return (
     <>
       <section className="stats-grid">
@@ -96,9 +100,9 @@ export function OverviewPage({
           seriesTone="accent"
         />
         <StatCard
-          label="Total avg cost"
-          value={formatCurrency(totalInvested)}
-          detail={`Cost basis of ${nonCashCount} position${nonCashCount === 1 ? "" : "s"} · excludes cash`}
+          label="Total invested"
+          value={formatCurrency(investmentSummary.totalInvested)}
+          detail={investedDetail}
         />
         <StatCard
           label="Unrealized P/L"
@@ -195,24 +199,13 @@ export function OverviewPage({
         <article className="panel">
           <div className="panel-header">
             <div>
-              <p className="panel-kicker">Risk / return</p>
-              <h2>Per-position scatter</h2>
+              <p className="panel-kicker">Growth</p>
+              <h2>Deposits vs market growth</h2>
             </div>
-            <span className="panel-meta">x risk · y return · size weight</span>
+            <span className="panel-meta">of current value</span>
           </div>
-          <RiskReturnScatter points={scatterPoints} />
+          <GrowthVsDeposits stats={savingsStats} />
         </article>
-      </section>
-
-      <section className="panel">
-        <div className="panel-header compact">
-          <div>
-            <p className="panel-kicker">Exposure</p>
-            <h2>Concentration gauges</h2>
-          </div>
-          <span className="panel-meta">vs soft caps</span>
-        </div>
-        <ExposureGauges gauges={exposureGauges} />
       </section>
 
       <section className="stats-grid secondary">
@@ -222,27 +215,11 @@ export function OverviewPage({
           detail={`${formatPercent(cashWeight)} of portfolio`}
         />
         <StatCard
-          label="Total invested"
-          value={formatCurrency(investmentSummary.totalInvested)}
-          detail={
-            investmentSummary.count > 0
-              ? `${investmentSummary.count} Invest entr${investmentSummary.count === 1 ? "y" : "ies"}`
-              : "Add entries in Invest tab"
-          }
+          label="Cost basis"
+          value={formatCurrency(costBasis)}
+          detail={`Sum of position cost · ${nonCashCount} position${nonCashCount === 1 ? "" : "s"}`}
         />
       </section>
-
-      {assetClassBuckets.length > 0 && (
-        <section className="class-alloc">
-          {assetClassBuckets.map((b) => (
-            <div key={b.assetClass} className={`class-alloc-pill class-alloc--${b.assetClass}`}>
-              <span className="class-alloc-name">{b.assetClass}</span>
-              <span className="class-alloc-weight num">{formatPercent(b.weight)}</span>
-              <span className="class-alloc-value num">{formatCurrency(b.value)}</span>
-            </div>
-          ))}
-        </section>
-      )}
 
       <section className="panel">
         <div className="panel-header">
@@ -256,7 +233,11 @@ export function OverviewPage({
             </span>
           </div>
         </div>
-        <PortfolioHistoryChart snapshots={history} lastFetchedIso={lastFetchedAt} />
+        <PortfolioHistoryChart
+          snapshots={history}
+          lastFetchedIso={lastFetchedAt}
+          contributions={contributionSeries}
+        />
       </section>
 
       <section className="dashboard-grid">
@@ -299,13 +280,6 @@ export function OverviewPage({
                   onClick={() => setTreemapMode("ticker")}
                 >
                   Ticker
-                </button>
-                <button
-                  type="button"
-                  className={`chip ${treemapMode === "assetClass" ? "active" : ""}`}
-                  onClick={() => setTreemapMode("assetClass")}
-                >
-                  Class
                 </button>
               </div>
               <div className="toggle-row">

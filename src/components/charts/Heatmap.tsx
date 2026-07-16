@@ -5,7 +5,7 @@ import { chartTokens } from "../../theme/chartTokens";
 
 export type HeatmapItem = {
   ticker: string;
-  group: string; // sector (stocks) or "Crypto"
+  group: string; // sector
   value: number; // market value (tile size)
   weight: number;
   dayChangePct: number;
@@ -31,8 +31,8 @@ export function Heatmap({ items }: { items: HeatmapItem[] }) {
   const option = useMemo<EChartsCoreOption>(() => {
     const t = chartTokens();
     const mid = "#2a3340";
-    // Flat: one tile per holding (numeric value so EVERY position renders,
-    // incl. tiny crypto), colored explicitly by day %.
+    // Flat: one tile per holding (numeric value so EVERY position renders),
+    // colored explicitly by day %.
     const data = [...items]
       .sort((a, b) => b.value - a.value)
       .map((c) => ({
@@ -46,6 +46,7 @@ export function Heatmap({ items }: { items: HeatmapItem[] }) {
     return {
       backgroundColor: "transparent",
       tooltip: {
+        confine: true,
         backgroundColor: t.panel,
         borderColor: t.border,
         textStyle: { color: t.text, fontFamily: t.fontMono, fontSize: 11 },

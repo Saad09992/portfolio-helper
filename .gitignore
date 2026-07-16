@@ -24,6 +24,7 @@ build/
 *.sqlite3
 data/portfolio.json
 data/portfolio.json.tmp
+data/portfolio.json.bak*
 
 # Logs
 *.log

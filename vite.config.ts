@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -27,6 +27,11 @@ export default defineConfig({
       },
     },
   ],
+  test: {
+    // Vitest 4 dropped **/dist/** from its default excludes, so compiled test
+    // output gets collected alongside the sources it was built from.
+    exclude: ["**/node_modules/**", "**/.git/**", "**/dist/**"],
+  },
   build: {
     chunkSizeWarningLimit: 1200,
     rollupOptions: {

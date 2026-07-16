@@ -5,7 +5,6 @@ import {
   serializeSave,
   savePortfolioBundle,
 } from "./api.mjs";
-import { fetchCryptoQuotes } from "./coingecko.mjs";
 import { fetchKse100 } from "./psx-index.mjs";
 import {
   computeTotals,
@@ -15,8 +14,8 @@ import {
   upsertDailySnapshot,
 } from "./portfolio-compute.mjs";
 
-// Daily snapshot fires at 23:59 PKT so it captures the full day (incl. late
-// crypto movement) and lands before the PKT date rolls over to the next day.
+// Daily snapshot fires at 23:59 PKT so it captures the full day and lands
+// before the PKT date rolls over to the next day.
 const SNAPSHOT_HOUR_PKT = 23;
 const SNAPSHOT_MIN_PKT = 59;
 const STALE_RETRY_MS = 5 * 60_000; // retry every 5 min when prices haven't settled
@@ -61,9 +60,8 @@ async function loadBundle(portfolioPath) {
   return JSON.parse(raw);
 }
 
-// ms from `now` until the next 15:35 PKT — every calendar day (crypto trades
-// 24/7). Walks day by day in Karachi time so DST / month / year rollovers fall
-// out of Intl.
+// ms from `now` until the next 23:59 PKT. Walks day by day in Karachi time so
+// DST / month / year rollovers fall out of Intl.
 function msUntilNextRun(now = new Date()) {
   let candidate = new Date(now.getTime());
   for (let i = 0; i < 14; i++) {
@@ -127,31 +125,23 @@ export async function runDailySync({
 
   const { pkDate, isWeekday: tradingDay } = psxCloseStatus();
 
-  const stockHoldings = nonCash.filter((h) => (h.assetClass ?? "stock") !== "crypto");
-  const cryptoHoldings = nonCash.filter((h) => h.assetClass === "crypto");
-  const tickers = stockHoldings
+  const tickers = nonCash
     .map((h) => String(h.ticker ?? "").toUpperCase())
     .filter(Boolean);
-  const coinIds = [
-    ...new Set(cryptoHoldings.map((h) => String(h.coinId ?? "")).filter(Boolean)),
-  ];
 
-  // Fetch both classes; crypto trades 24/7 so weekend snapshots still move.
-  // Also grab the KSE100 level for the benchmark overlay.
-  const [stockQuotes, cryptoQuotes, kse] = await Promise.all([
+  const [stockQuotes, kse] = await Promise.all([
     Promise.all(tickers.map(fetchQuoteResilient)).then((a) => a.filter(Boolean)),
-    coinIds.length ? fetchCryptoQuotes(coinIds) : Promise.resolve([]),
     fetchKse100().catch(() => null),
   ]);
 
-  if (stockQuotes.length === 0 && cryptoQuotes.length === 0) {
-    log(`skip: 0 quotes returned (stocks ${tickers.length}, crypto ${coinIds.length})`);
+  if (stockQuotes.length === 0) {
+    log(`skip: 0 quotes returned (stocks ${tickers.length})`);
     return { ran: false, reason: "no-quotes" };
   }
 
-  // Stock-freshness gate applies ONLY on PSX trading days — on weekends/holidays
-  // stocks legitimately have no new close, so we snapshot the last close + live
-  // crypto instead of waiting/retrying.
+  // Freshness gate applies ONLY on PSX trading days — on weekends/holidays
+  // stocks legitimately have no new close, so snapshot the last close rather
+  // than waiting/retrying.
   let freshStock = stockQuotes;
   if (tradingDay && tickers.length > 0) {
     const closeMs = pkCloseInstantMs(pkDate);
@@ -173,31 +163,13 @@ export async function runDailySync({
     freshStock = fresh;
   }
 
-  const quoteCount = freshStock.length + cryptoQuotes.length;
+  const quoteCount = freshStock.length;
 
   const quoteMap = new Map();
   for (const q of freshStock) quoteMap.set(q.ticker.toUpperCase(), q);
-  const cryptoMap = new Map();
-  for (const q of cryptoQuotes) cryptoMap.set(q.coinId, q);
 
   const updatedHoldings = holdings.map((h) => {
     if (String(h.id ?? "").startsWith("cash-")) return h;
-    if (h.assetClass === "crypto") {
-      const cq = cryptoMap.get(String(h.coinId ?? ""));
-      if (!cq) return h;
-      // Derive PKR cost basis from USD cost via implied FX (price_pkr/price_usd).
-      const costBasis =
-        cq.usdPrice > 0
-          ? round2((Number(h.usdCostBasis) || 0) * (cq.current / cq.usdPrice))
-          : h.costBasis;
-      return {
-        ...h,
-        price: round2(cq.current),
-        dayChangePct: round2(cq.changePct),
-        usdPrice: cq.usdPrice,
-        costBasis,
-      };
-    }
     const q = quoteMap.get(String(h.ticker ?? "").toUpperCase());
     if (!q) return h;
     return {
@@ -244,7 +216,7 @@ export async function runDailySync({
   await serializeSave(() => savePortfolioBundle(portfolioPath, nextBundle));
 
   log(
-    `synced: ${quoteCount} quotes (stocks ${freshStock.length}/${tickers.length}, crypto ${cryptoQuotes.length}/${coinIds.length}), value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(snapshotIso)}`,
+    `synced: ${quoteCount} quotes (stocks ${freshStock.length}/${tickers.length}), value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(snapshotIso)}`,
   );
   return { ran: true, entry, quoteCount };
 }

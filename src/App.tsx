@@ -3,7 +3,6 @@ import type {
   CashBuckets,
   Holding,
   InvestmentEntry,
-  MetalUnit,
   RebalanceCadence,
   TargetAllocation,
 } from "./types";
@@ -22,9 +21,6 @@ import {
 import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchMarketData } from "./services/psx-scraper";
 import type { HoldingSources, MarketQuote } from "./services/psx-scraper";
-import { fetchCryptoMarketData } from "./services/crypto";
-import { fetchMetalMarketData } from "./services/metals";
-import { unitToGrams, GRAMS_PER_UNIT } from "./portfolio/metals";
 import { fetchBenchmark } from "./services/benchmark";
 import { loadPortfolioFromDisk, savePortfolioToDisk } from "./services/portfolio-store";
 import { ANALYTICS, DRIFT, REBALANCE, TARGET_DEFAULTS, UI_LIMITS } from "./constants";
@@ -39,7 +35,6 @@ import {
 import { ImportParseError, parseImportBundle } from "./portfolio/importExport";
 import { pkDateOf, psxCloseStatus } from "./portfolio/calendar";
 import {
-  buildAssetClassBuckets,
   buildHoldingsWithCash,
   buildSectorBuckets,
   getCashDeploymentIdea,
@@ -102,11 +97,6 @@ const emptyDraft: DraftHolding = {
   dayChangePct: 0,
   dividendPerShare: 0,
   payoutDate: "",
-  assetClass: "stock",
-  coinId: "",
-  usdCostBasis: 0,
-  metalId: "gold",
-  unit: "tola",
 };
 
 const emptyTargetDraft: DraftTarget = {
@@ -134,8 +124,7 @@ function App() {
   const [targetFilter, setTargetFilter] = useState("");
   const [targetStatusFilter, setTargetStatusFilter] = useState<"all" | "over" | "under" | "ontrack" | "due">("all");
   const [targetPresets, setTargetPresets] = useState<TargetPreset[]>(() => loadTargetPresets());
-  const [treemapMode, setTreemapMode] = useState<"sector" | "ticker" | "assetClass">("sector");
-  const [holdingsClassFilter, setHoldingsClassFilter] = useState<"all" | "stock" | "crypto" | "metal">("all");
+  const [treemapMode, setTreemapMode] = useState<"sector" | "ticker">("sector");
   const [allocationView, setAllocationView] = useState<"map" | "ranked">("map");
   const [page, setPage] = useState<"overview" | "holdings" | "targets" | "income" | "invest">("overview");
   const [investments, setInvestments] = useState<InvestmentEntry[]>(() => loadInvestments());
@@ -543,13 +532,7 @@ function App() {
   const sortedHoldings = useMemo(() => {
     const q = holdingsSearch.trim().toLowerCase();
     const byClass =
-      holdingsClassFilter === "all"
-        ? portfolio.holdings
-        : portfolio.holdings.filter(
-            (h) =>
-              h.id.startsWith("cash-") ||
-              (h.assetClass ?? "stock") === holdingsClassFilter,
-          );
+      portfolio.holdings;
     const filtered = q
       ? byClass.filter(
           (h) =>
@@ -593,7 +576,7 @@ function App() {
     });
 
     return filtered;
-  }, [portfolio.holdings, holdingsSearch, holdingsSort, holdingsClassFilter]);
+  }, [portfolio.holdings, holdingsSearch, holdingsSort]);
 
   function toggleSort(key: HoldingsSortKey) {
     setHoldingsSort((cur) => {
@@ -602,11 +585,6 @@ function App() {
       return { key: null, dir: "desc" };
     });
   }
-
-  const assetClassBuckets = useMemo(
-    () => buildAssetClassBuckets(portfolio.holdings),
-    [portfolio.holdings],
-  );
 
   const treemapItems = useMemo(() => {
     if (treemapMode === "sector") {
@@ -618,27 +596,27 @@ function App() {
       }));
     }
 
-    if (treemapMode === "assetClass") {
-      return assetClassBuckets.map((bucket) => ({
-        key: bucket.assetClass,
-        label: bucket.assetClass,
-        value: bucket.value,
-        weight: bucket.weight,
-      }));
-    }
-
     return portfolio.holdings.slice(0, UI_LIMITS.TREEMAP_TOP_N).map((holding) => ({
       key: holding.id,
       label: holding.ticker,
       value: holding.marketValue,
       weight: holding.weight,
     }));
-  }, [treemapMode, sectors, assetClassBuckets, portfolio.holdings]);
+  }, [treemapMode, sectors, portfolio.holdings]);
 
   const savingsStats = useMemo(
     () => computeSavingsStats(investmentRows),
     [investmentRows],
   );
+
+  const contributionSeries = useMemo(() => {
+    const rows = [...investmentRows].sort((a, b) => a.date.localeCompare(b.date));
+    let cumulative = 0;
+    return rows.map((row) => {
+      cumulative += row.amount;
+      return { time: row.date, value: cumulative };
+    });
+  }, [investmentRows]);
 
   const benchmarkStats = useMemo(() => computeBenchmarkStats(history), [history]);
 
@@ -646,38 +624,12 @@ function App() {
     () =>
       nonCashPortfolio.map((h) => ({
         ticker: h.ticker,
-        group: h.assetClass === "crypto" ? "Crypto" : h.sector || "Uncategorized",
+        group: h.sector || "Uncategorized",
         value: h.marketValue,
         weight: h.weight,
         dayChangePct: h.dayChangePct,
       })),
     [nonCashPortfolio],
-  );
-
-  const scatterPoints = useMemo(
-    () =>
-      nonCashPortfolio
-        .filter((h) => h.costValue > 0)
-        .map((h) => ({
-          ticker: h.ticker,
-          risk: Math.abs(h.dayChangePct),
-          ret: (h.gainLoss / h.costValue) * 100,
-          weight: h.weight,
-          assetClass: (h.assetClass === "crypto" ? "crypto" : "stock") as "stock" | "crypto",
-        })),
-    [nonCashPortfolio],
-  );
-
-  const topWeight = topHolding?.weight ?? 0;
-  const cryptoWeight =
-    assetClassBuckets.find((b) => b.assetClass === "crypto")?.weight ?? 0;
-  const exposureGauges = useMemo(
-    () => [
-      { label: "CRYPTO %", pct: cryptoWeight * 100, cap: 25 },
-      { label: "CASH %", pct: cashWeight * 100, cap: 20 },
-      { label: "TOP POS %", pct: topWeight * 100, cap: 20 },
-    ],
-    [cryptoWeight, cashWeight, topWeight],
   );
 
   const waterfallRows = [...nonCashPortfolio]
@@ -718,64 +670,18 @@ function App() {
       return;
     }
 
-    const isCrypto = draft.assetClass === "crypto";
-    const isMetal = draft.assetClass === "metal";
-    if (isCrypto && !draft.coinId) {
-      setDraftError("Pick a coin from the search to add a crypto holding.");
-      return;
-    }
-    if (isMetal && !draft.metalId) {
-      setDraftError("Pick a metal (gold or silver).");
-      return;
-    }
-
-    if (isMetal) {
-      // Quantity + cost are entered in the chosen unit; store canonically as
-      // grams with PKR-per-gram cost. Live price (PKR/gram) fills on refresh.
-      const unit = draft.unit ?? "tola";
-      const grams = unitToGrams(draft.shares, unit);
-      const metalLabel = draft.metalId === "silver" ? "Silver" : "Gold";
-      const holding: Holding = {
-        id: createId(),
-        ticker: (draft.metalId ?? "gold").toUpperCase(),
-        name: name || metalLabel,
-        sector: "Metals",
-        account: "Metal",
-        shares: grams,
-        price: 0,
-        costBasis: draft.costBasis / GRAMS_PER_UNIT[unit],
-        dayChangePct: 0,
-        dividendPerShare: 0,
-        payoutDate: "",
-        assetClass: "metal",
-        coinId: "",
-        metalId: draft.metalId ?? "gold",
-        unit,
-        usdPrice: 0,
-      };
-      setHoldings((current) => [holding, ...current]);
-      setDraft(emptyDraft);
-      setDraftError("");
-      return;
-    }
-
     const holding: Holding = {
       id: createId(),
       ticker: ticker.toUpperCase(),
       name,
-      sector: isCrypto ? "Crypto" : draft.sector.trim() || "Uncategorized",
-      account: isCrypto ? "Crypto" : "PSX",
+      sector: draft.sector.trim() || "Uncategorized",
+      account: "PSX",
       shares: draft.shares,
-      price: isCrypto ? 0 : draft.price,
-      // Crypto cost is USD-native; PKR costBasis is derived on the next price
-      // refresh from CoinGecko's implied FX. Starts at 0 until then.
-      costBasis: isCrypto ? 0 : draft.costBasis,
+      price: draft.price,
+      costBasis: draft.costBasis,
       dayChangePct: draft.dayChangePct,
       dividendPerShare: draft.dividendPerShare,
       payoutDate: draft.payoutDate,
-      assetClass: isCrypto ? "crypto" : "stock",
-      coinId: isCrypto ? draft.coinId : "",
-      ...(isCrypto && { usdCostBasis: draft.usdCostBasis ?? 0, usdPrice: 0 }),
     };
 
     setHoldings((current) => [holding, ...current]);
@@ -1002,22 +908,8 @@ function App() {
     if (!Number.isFinite(value) || value <= 0) return;
     setHoldings((current) =>
       current.map((h) =>
-        h.id === id
-          ? {
-              ...h,
-              shares:
-                h.assetClass === "crypto" || h.assetClass === "metal"
-                  ? value
-                  : Math.round(value),
-            }
-          : h,
+        h.id === id ? { ...h, shares: Math.round(value) } : h,
       ),
-    );
-  }
-
-  function updateHoldingUnit(id: string, unit: MetalUnit) {
-    setHoldings((current) =>
-      current.map((h) => (h.id === id ? { ...h, unit } : h)),
     );
   }
 
@@ -1049,45 +941,13 @@ function App() {
     setFetching(true);
 
     try {
-      const stockTickers = nonCash
-        .filter((h) => h.assetClass !== "crypto")
-        .map((h) => h.ticker);
-      const coinIds = Array.from(
-        new Set(
-          nonCash
-            .filter((h) => h.assetClass === "crypto" && h.coinId)
-            .map((h) => h.coinId as string),
-        ),
-      );
-      const metalIds = Array.from(
-        new Set(
-          nonCash
-            .filter((h) => h.assetClass === "metal" && h.metalId)
-            .map((h) => h.metalId as string),
-        ),
-      );
+      const stockTickers = nonCash.map((h) => h.ticker);
 
-      // Dividends disabled for now — no reliable source (see fetchDividendResilient).
-      // Fetch each class independently so one source failing doesn't block the others.
-      const [stockRes, cryptoRes, metalRes] = await Promise.allSettled([
-        stockTickers.length ? fetchMarketData(stockTickers) : Promise.resolve([]),
-        coinIds.length ? fetchCryptoMarketData(coinIds) : Promise.resolve([]),
-        metalIds.length ? fetchMetalMarketData(metalIds) : Promise.resolve([]),
-      ]);
-
-      const quotes: MarketQuote[] = [];
-      if (stockRes.status === "fulfilled") quotes.push(...stockRes.value);
-      if (cryptoRes.status === "fulfilled") quotes.push(...cryptoRes.value);
-      if (metalRes.status === "fulfilled") quotes.push(...metalRes.value);
-
-      if (stockRes.status === "rejected" && stockTickers.length) {
-        pushToast(`Stock prices failed: ${String(stockRes.reason)}`, "error");
-      }
-      if (cryptoRes.status === "rejected" && coinIds.length) {
-        pushToast(`Crypto prices failed: ${String(cryptoRes.reason)}`, "error");
-      }
-      if (metalRes.status === "rejected" && metalIds.length) {
-        pushToast(`Metal prices failed: ${String(metalRes.reason)}`, "error");
+      let quotes: MarketQuote[] = [];
+      try {
+        quotes = await fetchMarketData(stockTickers);
+      } catch (err) {
+        pushToast(`Stock prices failed: ${String(err)}`, "error");
       }
 
       const { holdings: updated, sources } = applyMarketData(holdings, quotes, []);
@@ -1106,9 +966,7 @@ function App() {
       }
 
       const snapshot = computePortfolio(buildHoldingsWithCash(updated, cashDraft));
-      // Snapshot once/day after the 15:30 PKT close — every calendar day, so
-      // crypto's 24/7 movement (incl. weekends) is tracked. Stocks just carry
-      // their last close on non-trading days.
+      // Snapshot once/day after the 15:30 PKT close.
       const { afterClose } = psxCloseStatus();
       if (afterClose) {
         const bench = await fetchBenchmark().catch(() => null);
@@ -1305,13 +1163,15 @@ function App() {
       {page === "overview" && (
         <OverviewPage
           equityMarketValue={equityMarketValue}
-          totalInvested={totalInvested}
+          costBasis={totalInvested}
           nonCashCount={nonCashPortfolio.length}
           portfolio={portfolio}
           topHolding={topHolding}
           cashDraft={cashDraft}
           cashWeight={cashWeight}
           investmentSummary={investmentSummary}
+          savingsStats={savingsStats}
+          contributionSeries={contributionSeries}
           history={history}
           lastFetchedAt={lastFetchedAt}
           fetching={fetching}
@@ -1326,11 +1186,8 @@ function App() {
           riskMetrics={riskMetrics}
           valueSeries={valueSeries}
           pnlSeries={pnlSeries}
-          assetClassBuckets={assetClassBuckets}
           benchmarkStats={benchmarkStats}
           heatmapItems={heatmapItems}
-          scatterPoints={scatterPoints}
-          exposureGauges={exposureGauges}
         />
       )}
 
@@ -1347,11 +1204,8 @@ function App() {
           toggleSort={toggleSort}
           updateHoldingShares={updateHoldingShares}
           updateHoldingCostBasis={updateHoldingCostBasis}
-          updateHoldingUnit={updateHoldingUnit}
           removeHolding={removeHolding}
           quoteSources={quoteSources}
-          classFilter={holdingsClassFilter}
-          setClassFilter={setHoldingsClassFilter}
         />
       )}
 

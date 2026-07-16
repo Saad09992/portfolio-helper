@@ -4,8 +4,6 @@ import { copyFile, readFile, rename, rm, writeFile } from "fs/promises";
 import { dirname } from "path";
 import { fetchWithTimeout, withRetry } from "./scrape-util.mjs";
 import { fetchQuoteSarmaaya, fetchDividendSarmaaya } from "./sarmaaya.mjs";
-import { searchCoins, fetchCryptoQuotes } from "./coingecko.mjs";
-import { fetchMetalQuotes } from "./metals.mjs";
 import { fetchKse100 } from "./psx-index.mjs";
 
 const BACKUP_GENERATIONS = 5;
@@ -198,51 +196,6 @@ export function createApiMiddleware({ dbPath, portfolioPath }) {
             : { current: kse.current, asOf: kse.asOf, changePct: kse.changePct };
           sendJson(res, 200, body);
         })
-        .catch((err) => {
-          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
-        });
-      return;
-    }
-
-    if (url.startsWith("/api/crypto/search")) {
-      const params = new URL(url, "http://localhost").searchParams;
-      const q = params.get("q") ?? "";
-      searchCoins(q)
-        .then((coins) => sendJson(res, 200, coins))
-        .catch((err) => {
-          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
-        });
-      return;
-    }
-
-    if (url.startsWith("/api/crypto/market-data")) {
-      const params = new URL(url, "http://localhost").searchParams;
-      const ids = (params.get("ids") ?? "")
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      if (ids.length === 0) {
-        return sendJson(res, 400, { error: "ids param required" });
-      }
-      fetchCryptoQuotes(ids)
-        .then((quotes) => sendJson(res, 200, quotes))
-        .catch((err) => {
-          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
-        });
-      return;
-    }
-
-    if (url.startsWith("/api/metals/market-data")) {
-      const params = new URL(url, "http://localhost").searchParams;
-      const metals = (params.get("metals") ?? "")
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      if (metals.length === 0) {
-        return sendJson(res, 400, { error: "metals param required" });
-      }
-      fetchMetalQuotes(metals)
-        .then((quotes) => sendJson(res, 200, quotes))
         .catch((err) => {
           if (!res.headersSent) sendJson(res, 500, { error: String(err) });
         });

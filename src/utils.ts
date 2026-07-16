@@ -134,16 +134,6 @@ export function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-/** USD formatter for crypto holdings (primary currency, Binance-style). */
-export function formatUsd(value: number): string {
-  const dp = Math.abs(value) > 0 && Math.abs(value) < 1 ? 4 : 2;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: dp,
-    maximumFractionDigits: dp,
-  }).format(value);
-}
 
 export function formatCompactCurrency(value: number): string {
   const abs = Math.abs(value);

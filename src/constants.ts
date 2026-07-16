@@ -61,7 +61,7 @@ export const CADENCE_DAYS: Record<RebalanceCadence, number> = {
 export const ANALYTICS = {
   /** Annual risk-free rate for Sharpe (≈ PSX T-bill yield). Tweak as rates move. */
   RISK_FREE_ANNUAL: 0.11,
-  /** Calendar days per year — snapshots are daily (incl. weekends; crypto is
-   *  24/7), so annualize volatility/return on a 365-day basis. */
+  /** Calendar days per year — snapshots are daily (incl. weekends), so
+   *  annualize volatility/return on a 365-day basis. */
   TRADING_DAYS: 365,
 } as const;

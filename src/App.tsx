@@ -605,8 +605,8 @@ function App() {
   }, [treemapMode, sectors, portfolio.holdings]);
 
   const savingsStats = useMemo(
-    () => computeSavingsStats(investmentRows),
-    [investmentRows],
+    () => computeSavingsStats(investmentRows, portfolio.totalValue),
+    [investmentRows, portfolio.totalValue],
   );
 
   const contributionSeries = useMemo(() => {

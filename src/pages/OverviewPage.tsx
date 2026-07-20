@@ -8,7 +8,9 @@ import {
   formatRelativeTime,
   formatSignedPercent,
 } from "../utils";
+import { METRIC_INFO, type MetricInfo } from "../metricInfo";
 import { StatCard } from "../components/ui/StatCard";
+import { InfoTip } from "../components/ui/InfoTip";
 import { Sparkline } from "../components/ui/Sparkline";
 import { RankedAllocation } from "../components/RankedAllocation";
 import {
@@ -55,6 +57,15 @@ function pctOrDash(ready: boolean, value: string): string {
   return ready ? value : "—";
 }
 
+function KpiLabel({ label, info }: { label: string; info: MetricInfo }) {
+  return (
+    <p className="kpi-label">
+      {label}
+      <InfoTip title={label} what={info.what} reading={info.reading} />
+    </p>
+  );
+}
+
 export function OverviewPage({
   equityMarketValue,
   costBasis,
@@ -98,11 +109,13 @@ export function OverviewPage({
           detail={`${nonCashCount} position${nonCashCount === 1 ? "" : "s"} · excludes cash`}
           series={valueSeries}
           seriesTone="accent"
+          info={METRIC_INFO.totalValue}
         />
         <StatCard
           label="Total invested"
           value={formatCurrency(investmentSummary.totalInvested)}
           detail={investedDetail}
+          info={METRIC_INFO.totalInvested}
         />
         <StatCard
           label="Unrealized P/L"
@@ -111,6 +124,7 @@ export function OverviewPage({
           tone={portfolio.totalGainLoss >= 0 ? "positive" : "negative"}
           series={pnlSeries}
           seriesTone={portfolio.totalGainLoss >= 0 ? "positive" : "negative"}
+          info={METRIC_INFO.unrealizedPl}
         />
         <StatCard
           label="True return (TWR)"
@@ -119,6 +133,7 @@ export function OverviewPage({
           tone={rm.twrReturn >= 0 ? "positive" : "negative"}
           series={rm.series.twr}
           seriesTone={rm.twrReturn >= 0 ? "positive" : "negative"}
+          info={METRIC_INFO.trueReturn}
         />
         <StatCard
           label="Top position"
@@ -128,6 +143,7 @@ export function OverviewPage({
               : "None"
           }
           detail={topHolding ? topHolding.name : "Import holdings to begin"}
+          info={METRIC_INFO.topPosition}
         />
       </section>
 
@@ -141,19 +157,19 @@ export function OverviewPage({
         </div>
         <div className="kpi-grid">
           <div className="kpi-tile">
-            <p>Max drawdown</p>
+            <KpiLabel label="Max drawdown" info={METRIC_INFO.maxDrawdown} />
             <strong className="num negative">{pctOrDash(rm.ready, formatPercent(rm.maxDrawdown))}</strong>
             {rm.ready ? <Sparkline data={rm.series.drawdown} tone="negative" fill /> : null}
             <span>Peak-to-trough</span>
           </div>
           <div className="kpi-tile">
-            <p>Volatility</p>
+            <KpiLabel label="Volatility" info={METRIC_INFO.volatility} />
             <strong className="num">{pctOrDash(rm.ready, formatPercent(rm.volatilityAnnual))}</strong>
             {rm.ready ? <Sparkline data={rm.series.dailyReturns} tone="warn" /> : null}
             <span>Annualized</span>
           </div>
           <div className="kpi-tile">
-            <p>Sharpe</p>
+            <KpiLabel label="Sharpe" info={METRIC_INFO.sharpe} />
             <strong className={`num ${rm.sharpe >= 1 ? "positive" : rm.sharpe < 0 ? "negative" : ""}`}>
               {rm.ready ? rm.sharpe.toFixed(2) : "—"}
             </strong>
@@ -161,24 +177,24 @@ export function OverviewPage({
             <span>Risk-adjusted return</span>
           </div>
           <div className="kpi-tile">
-            <p>Best day</p>
+            <KpiLabel label="Best day" info={METRIC_INFO.bestDay} />
             <strong className="num positive">{rm.ready ? formatSignedPercent(rm.bestDay * 100, 2) : "—"}</strong>
             <span>Largest daily gain</span>
           </div>
           <div className="kpi-tile">
-            <p>Worst day</p>
+            <KpiLabel label="Worst day" info={METRIC_INFO.worstDay} />
             <strong className="num negative">{rm.ready ? formatSignedPercent(rm.worstDay * 100, 2) : "—"}</strong>
             <span>Largest daily loss</span>
           </div>
           <div className="kpi-tile">
-            <p>Alpha vs KSE100</p>
+            <KpiLabel label="Alpha vs KSE100" info={METRIC_INFO.alpha} />
             <strong className={`num ${bm.alpha >= 0 ? "positive" : "negative"}`}>
               {bm.ready ? formatSignedPercent(bm.alpha * 100, 1) : "—"}
             </strong>
             <span>{bm.ready ? `you ${formatSignedPercent(bm.portReturn * 100, 1)} · idx ${formatSignedPercent(bm.benchReturn * 100, 1)}` : "Needs 3+ snapshots"}</span>
           </div>
           <div className="kpi-tile">
-            <p>Beta</p>
+            <KpiLabel label="Beta" info={METRIC_INFO.beta} />
             <strong className="num">{bm.ready ? bm.beta.toFixed(2) : "—"}</strong>
             <span>vs KSE100</span>
           </div>
@@ -200,7 +216,14 @@ export function OverviewPage({
           <div className="panel-header">
             <div>
               <p className="panel-kicker">Growth</p>
-              <h2>Deposits vs market growth</h2>
+              <h2>
+                Deposits vs market growth
+                <InfoTip
+                  title="Deposits vs market growth"
+                  what={METRIC_INFO.depositsVsGrowth.what}
+                  reading={METRIC_INFO.depositsVsGrowth.reading}
+                />
+              </h2>
             </div>
             <span className="panel-meta">of current value</span>
           </div>
@@ -213,11 +236,13 @@ export function OverviewPage({
           label="Cash"
           value={formatCurrency(cashDraft.available)}
           detail={`${formatPercent(cashWeight)} of portfolio`}
+          info={METRIC_INFO.cash}
         />
         <StatCard
           label="Cost basis"
           value={formatCurrency(costBasis)}
           detail={`Sum of position cost · ${nonCashCount} position${nonCashCount === 1 ? "" : "s"}`}
+          info={METRIC_INFO.costBasis}
         />
       </section>
 

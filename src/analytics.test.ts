@@ -127,6 +127,31 @@ describe("computeSavingsStats", () => {
     expect(s.streak).toBe(3);
   });
 
+  it("marks the split at live prices when a live value is passed", () => {
+    const rows = [
+      invRow("2026-01-01", 100, 100, 100),
+      invRow("2026-02-01", 200, 300, 400),
+    ];
+    const s = computeSavingsStats(rows, 250);
+    expect(s.latestValue).toBe(400);
+    expect(s.marketGain).toBe(100);
+    expect(s.latestValueDate).toBe("2026-02-01");
+    expect(s.liveReady).toBe(true);
+    expect(s.liveValue).toBe(250);
+    expect(s.liveMarketGain).toBe(-50);
+    expect(s.livePctFromDeposits).toBeCloseTo(1.2, 6);
+    expect(s.livePctFromMarket).toBeCloseTo(-0.2, 6);
+  });
+
+  it("leaves live fields off when no live value is available", () => {
+    const rows = [
+      invRow("2026-01-01", 100, 100, 100),
+      invRow("2026-02-01", 200, 300, 400),
+    ];
+    expect(computeSavingsStats(rows).liveReady).toBe(false);
+    expect(computeSavingsStats(rows, 0).liveReady).toBe(false);
+  });
+
   it("streak resets on a non-positive contribution", () => {
     const rows = [
       invRow("2026-01-01", 100, 100, 100),

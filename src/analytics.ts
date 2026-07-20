@@ -104,11 +104,21 @@ export type SavingsStats = {
   monthlyAvg: number;
   /** Net capital contributed (last cumulative total). */
   totalContributed: number;
+  /** Value as of the last Invest-tab entry (its `valueEom`), not live prices. */
   latestValue: number;
   marketGain: number;
   /** Share of current value attributable to deposits vs market gains. */
   pctFromDeposits: number;
   pctFromMarket: number;
+  /** Date of the entry `latestValue`/`marketGain` come from (ISO, "" when none). */
+  latestValueDate: string;
+  /** True when a live portfolio value was supplied and the live split is usable. */
+  liveReady: boolean;
+  /** Portfolio value at live prices (0 when not supplied). */
+  liveValue: number;
+  liveMarketGain: number;
+  livePctFromDeposits: number;
+  livePctFromMarket: number;
   /** Consecutive most-recent entries with a positive contribution. */
   streak: number;
   months: number;
@@ -122,6 +132,12 @@ const EMPTY_SAVINGS: SavingsStats = {
   marketGain: 0,
   pctFromDeposits: 0,
   pctFromMarket: 0,
+  latestValueDate: "",
+  liveReady: false,
+  liveValue: 0,
+  liveMarketGain: 0,
+  livePctFromDeposits: 0,
+  livePctFromMarket: 0,
   streak: 0,
   months: 0,
 };
@@ -130,8 +146,16 @@ const EMPTY_SAVINGS: SavingsStats = {
  * Savings-behaviour stats derived from the investment ledger: how much is being
  * saved per month, contribution streak, and how much of the current value came
  * from deposits vs market gains.
+ *
+ * `latestValue`/`marketGain` come from the last ledger entry's `valueEom`, so
+ * they are only as fresh as that entry. Pass `liveValue` (the portfolio total at
+ * current prices) to also get the `live*` fields, which mark the same split
+ * against live prices.
  */
-export function computeSavingsStats(rows: InvestmentRow[]): SavingsStats {
+export function computeSavingsStats(
+  rows: InvestmentRow[],
+  liveValue?: number,
+): SavingsStats {
   if (rows.length === 0) return EMPTY_SAVINGS;
 
   const last = rows[rows.length - 1];
@@ -157,6 +181,9 @@ export function computeSavingsStats(rows: InvestmentRow[]): SavingsStats {
     else break;
   }
 
+  const live = Number.isFinite(liveValue) && (liveValue ?? 0) > 0 ? (liveValue as number) : 0;
+  const liveMarketGain = live - totalContributed;
+
   return {
     ready: rows.length >= 2 && latestValue > 0,
     monthlyAvg,
@@ -165,6 +192,12 @@ export function computeSavingsStats(rows: InvestmentRow[]): SavingsStats {
     marketGain,
     pctFromDeposits: latestValue > 0 ? totalContributed / latestValue : 0,
     pctFromMarket: latestValue > 0 ? marketGain / latestValue : 0,
+    latestValueDate: last.date,
+    liveReady: live > 0,
+    liveValue: live,
+    liveMarketGain,
+    livePctFromDeposits: live > 0 ? totalContributed / live : 0,
+    livePctFromMarket: live > 0 ? liveMarketGain / live : 0,
     streak,
     months,
   };

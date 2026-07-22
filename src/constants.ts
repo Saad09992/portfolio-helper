@@ -12,8 +12,8 @@ export const DRIFT = {
 } as const;
 
 export const REBALANCE = {
-  /** PKR floor below which a rebalance gap is too small to suggest */
-  MIN_PKR: 5000,
+  /** Paisa floor (₨5,000) below which a rebalance gap is too small to suggest */
+  MIN_PKR: 500000,
   /** Fraction-of-portfolio floor below which a rebalance gap is suppressed */
   MIN_PORTFOLIO_FRACTION: 0.01,
   /** Max suggestions surfaced in the rebalance panel */

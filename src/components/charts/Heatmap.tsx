@@ -51,7 +51,7 @@ export function Heatmap({ items }: { items: HeatmapItem[] }) {
         borderColor: t.border,
         textStyle: { color: t.text, fontFamily: t.fontMono, fontSize: 11 },
         formatter: (info: { name: string; value: number; data: { day: number } }) =>
-          `${info.name}<br/>day ${info.data.day >= 0 ? "+" : ""}${info.data.day.toFixed(2)}%<br/>Rs ${Number(info.value).toLocaleString()}`,
+          `${info.name}<br/>day ${info.data.day >= 0 ? "+" : ""}${info.data.day.toFixed(2)}%<br/>Rs ${(Number(info.value) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       },
       series: [
         {

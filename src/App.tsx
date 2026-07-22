@@ -18,6 +18,7 @@ import {
   upsertDailySnapshot,
   xirr,
 } from "./utils";
+import { rupeesToPaisa, roundPaisa } from "./money";
 import { useConfirm } from "./confirmDialog";
 import { applyMarketData, fetchMarketData } from "./services/psx-scraper";
 import type { HoldingSources, MarketQuote } from "./services/psx-scraper";
@@ -67,7 +68,8 @@ import { TargetsPage } from "./pages/TargetsPage";
 import { IncomePage } from "./pages/IncomePage";
 import { InvestPage } from "./pages/InvestPage";
 
-const BACKUP_SCHEMA_VERSION = 1;
+// v2: monetary values are integer paisa (was rupee-floats in v1).
+const BACKUP_SCHEMA_VERSION = 2;
 
 type DraftHolding = Omit<Holding, "id" | "account">;
 
@@ -298,7 +300,7 @@ function App() {
     const lookup = target.mode === "sector" ? sectorWeightMap : tickerWeightMap;
     const currentWeight = lookup.get(target.key.toLowerCase()) ?? 0;
     const drift = currentWeight - target.targetWeight;
-    const gapValue = (target.targetWeight - currentWeight) * portfolio.totalValue;
+    const gapValue = roundPaisa((target.targetWeight - currentWeight) * portfolio.totalValue);
     const absDrift = Math.abs(drift);
     const warn = target.warnThreshold ?? TARGET_DEFAULTS.WARN_THRESHOLD;
     const critical = target.criticalThreshold ?? TARGET_DEFAULTS.CRITICAL_THRESHOLD;
@@ -472,10 +474,12 @@ function App() {
   }, [investmentRows]);
 
   const summaryInput: PortfolioSummaryInput = useMemo(() => {
-    const dayPnL = nonCashPortfolio.reduce((s, h) => {
-      const denom = 100 + h.dayChangePct;
-      return denom === 0 ? s : s + (h.marketValue * h.dayChangePct) / denom;
-    }, 0);
+    const dayPnL = roundPaisa(
+      nonCashPortfolio.reduce((s, h) => {
+        const denom = 100 + h.dayChangePct;
+        return denom === 0 ? s : s + (h.marketValue * h.dayChangePct) / denom;
+      }, 0),
+    );
     const twrIdx = computeTwrIndex(history);
     const twrLatest = twrIdx.length >= 2 ? twrIdx[twrIdx.length - 1] : null;
 
@@ -677,10 +681,11 @@ function App() {
       sector: draft.sector.trim() || "Uncategorized",
       account: "PSX",
       shares: draft.shares,
-      price: draft.price,
-      costBasis: draft.costBasis,
+      // Draft holds rupees from the form → store as integer paisa.
+      price: rupeesToPaisa(draft.price),
+      costBasis: rupeesToPaisa(draft.costBasis),
       dayChangePct: draft.dayChangePct,
-      dividendPerShare: draft.dividendPerShare,
+      dividendPerShare: rupeesToPaisa(draft.dividendPerShare),
       payoutDate: draft.payoutDate,
     };
 
@@ -869,8 +874,9 @@ function App() {
         id: createId(),
         date: investDraft.date,
         label: investDraft.label.trim() || `Month ${current.length}`,
-        amount,
-        valueEom,
+        // Draft holds rupees → store as integer paisa.
+        amount: rupeesToPaisa(amount),
+        valueEom: rupeesToPaisa(valueEom),
       },
     ]);
     setInvestDraft(emptyInvestmentDraft);
@@ -899,7 +905,7 @@ function App() {
     if (!Number.isFinite(value) || value < 0) return;
     setHoldings((current) =>
       current.map((h) =>
-        h.id === id ? { ...h, costBasis: Math.round(value * 100) / 100 } : h,
+        h.id === id ? { ...h, costBasis: rupeesToPaisa(value) } : h,
       ),
     );
   }

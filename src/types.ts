@@ -1,6 +1,11 @@
+// MONEY CONVENTION: every monetary field below is INTEGER PAISA (100 = ₨1),
+// never rupee-floats. See src/money.ts. Ratios/weights/percents/counts and the
+// KSE100 index level are not money and remain plain numbers.
+
 export type Payout = {
   announcementDate: string;
   bookClosureDate: string;
+  /** paisa */
   dividendPerShare: number;
 };
 

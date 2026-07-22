@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "composite": true,
+    "skipLibCheck": true,
     "outDir": "./dist/node",
     "module": "ESNext",
     "moduleResolution": "bundler",

@@ -180,7 +180,8 @@ describe("buildPortfolioSummary — tables & math", () => {
   });
 
   it("day P/L row math: 10000 @ 2% → ~196.08", () => {
-    const holdings = [holding({ marketValue: 10000, dayChangePct: 2 })];
+    // marketValue is paisa: ₨10,000 = 1,000,000 paisa.
+    const holdings = [holding({ marketValue: 1_000_000, dayChangePct: 2 })];
     const md = buildPortfolioSummary(baseInput({ holdings }), "compact");
     expect(md).toMatch(/\+Rs\s*196\.08/);
   });

@@ -1,5 +1,6 @@
 import type { Holding, Payout } from "../types";
 import { apiFetch } from "./api-url";
+import { rupeesToPaisa } from "../money";
 
 export type QuoteSource = "dps" | "sarmaaya" | string;
 
@@ -100,12 +101,16 @@ export function applyMarketData(
 
     return {
       ...holding,
-      price: Math.round(quote.current * 100) / 100,
+      // Scraped prices/dividends arrive in rupees → store as integer paisa.
+      price: rupeesToPaisa(quote.current),
       dayChangePct: Math.round(quote.changePct * 100) / 100,
       ...(div && {
-        dividendPerShare: div.dividendPerShare,
+        dividendPerShare: rupeesToPaisa(div.dividendPerShare),
         payoutDate: div.payoutDate,
-        payouts: div.payouts ?? [],
+        payouts: (div.payouts ?? []).map((p) => ({
+          ...p,
+          dividendPerShare: rupeesToPaisa(p.dividendPerShare),
+        })),
       }),
     };
   });

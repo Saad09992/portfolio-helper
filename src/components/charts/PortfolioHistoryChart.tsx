@@ -47,8 +47,9 @@ export function PortfolioHistoryChart({
   const series = useMemo(() => {
     const t = (iso: string) =>
       (Math.floor(new Date(`${dayKey(iso)}T00:00:00Z`).getTime() / 1000)) as UTCTimestamp;
-    const value = rows.map((s) => ({ time: t(s.date), value: s.totalValue }));
-    const cost = rows.map((s) => ({ time: t(s.date), value: s.totalCost }));
+    // Money series are paisa in state → divide for the rupee value axis.
+    const value = rows.map((s) => ({ time: t(s.date), value: s.totalValue / 100 }));
+    const cost = rows.map((s) => ({ time: t(s.date), value: s.totalCost / 100 }));
     const twrIdx = computeTwrIndex(rows);
     const twr = rows.map((s, i) => ({ time: t(s.date), value: twrIdx[i] }));
     const kseRows = rows.filter((s) => typeof s.kse100 === "number" && (s.kse100 as number) > 0);
@@ -72,7 +73,7 @@ export function PortfolioHistoryChart({
           running = contribInput[idx].value;
           idx++;
         }
-        contrib.push({ time: t(row.date), value: running });
+        contrib.push({ time: t(row.date), value: running / 100 });
       }
     }
     return { value, cost, twr, kse, contrib };

@@ -2,11 +2,13 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { createApiMiddleware } from "./server/api.mjs";
+import { getRequestListener } from "@hono/node-server";
+import { Hono } from "hono";
+import { registerApiRoutes } from "./server/api.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = resolve(__dirname, "data/psx-stocks.db");
-const PORTFOLIO_PATH = resolve(__dirname, "data/portfolio.json");
+const PORTFOLIO_DB_PATH = resolve(__dirname, "data/portfolio.sqlite");
 
 // Set BASE_PATH=/psx/ (etc) when deploying behind a path-based reverse proxy.
 // Leave unset for root deploys or host-based routing.
@@ -19,11 +21,16 @@ export default defineConfig({
     {
       name: "psx-market-api",
       configureServer(server) {
-        const api = createApiMiddleware({
+        const app = new Hono();
+        registerApiRoutes(app, {
           dbPath: DB_PATH,
-          portfolioPath: PORTFOLIO_PATH,
+          portfolioDbPath: PORTFOLIO_DB_PATH,
         });
-        server.middlewares.use(api);
+        const listener = getRequestListener(app.fetch);
+        server.middlewares.use((req, res, next) => {
+          if (!req.url?.startsWith("/api/")) return next();
+          listener(req, res);
+        });
       },
     },
   ],

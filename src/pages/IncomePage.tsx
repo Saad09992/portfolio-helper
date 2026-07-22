@@ -1,5 +1,6 @@
 import type { CashBuckets } from "../types";
 import { Field } from "../components/ui/Field";
+import { paisaToRupees, rupeesToPaisa } from "../money";
 
 export type IncomePageProps = {
   cashDraft: CashBuckets;
@@ -31,8 +32,8 @@ export function IncomePage({
               type="number"
               min={0}
               step="0.01"
-              value={String(cashDraft.available)}
-              onChange={(value) => setCashDraft({ available: Number(value) })}
+              value={String(paisaToRupees(cashDraft.available))}
+              onChange={(value) => setCashDraft({ available: rupeesToPaisa(Number(value)) })}
             />
           </div>
           {cashError ? <p className="form-error">{cashError}</p> : null}

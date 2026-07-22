@@ -22,6 +22,8 @@ build/
 *.db-journal
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
 data/portfolio.json
 data/portfolio.json.tmp
 data/portfolio.json.bak*

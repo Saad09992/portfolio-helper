@@ -34,9 +34,10 @@ export function InvestmentChart({ rows }: { rows: InvestmentChartRow[] }) {
     const ordered = [...byDay.values()].sort((a, b) => dayKey(a.date).localeCompare(dayKey(b.date)));
     const t = (iso: string) =>
       Math.floor(new Date(`${dayKey(iso)}T00:00:00Z`).getTime() / 1000) as UTCTimestamp;
+    // total/valueEom are paisa in state → divide for the rupee value axis.
     return {
-      deployed: ordered.map((r) => ({ time: t(r.date), value: r.total })),
-      value: ordered.map((r) => ({ time: t(r.date), value: r.valueEom })),
+      deployed: ordered.map((r) => ({ time: t(r.date), value: r.total / 100 })),
+      value: ordered.map((r) => ({ time: t(r.date), value: r.valueEom / 100 })),
     };
   }, [rows]);
 

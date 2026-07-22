@@ -1,10 +1,12 @@
-import { existsSync } from "fs";
-import { readFile } from "fs/promises";
 import {
   fetchQuoteResilient,
   serializeSave,
-  savePortfolioBundle,
 } from "./api.mjs";
+import {
+  getPortfolioDb,
+  loadBundle as loadBundleDb,
+  saveBundle,
+} from "./portfolio-db.mjs";
 import { fetchKse100 } from "./psx-index.mjs";
 import {
   computeTotals,
@@ -53,13 +55,6 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
-async function loadBundle(portfolioPath) {
-  if (!existsSync(portfolioPath)) return null;
-  const raw = await readFile(portfolioPath, "utf-8");
-  if (!raw.trim() || raw.trim() === "null") return null;
-  return JSON.parse(raw);
-}
-
 // ms from `now` until the next 23:59 PKT. Walks day by day in Karachi time so
 // DST / month / year rollovers fall out of Intl.
 function msUntilNextRun(now = new Date()) {
@@ -95,13 +90,14 @@ function msUntilNextRun(now = new Date()) {
 }
 
 export async function runDailySync({
-  portfolioPath,
+  portfolioDbPath,
   log = defaultLog,
   force = false,
 } = {}) {
-  const bundle = await loadBundle(portfolioPath);
+  const db = getPortfolioDb(portfolioDbPath);
+  const bundle = loadBundleDb(db);
   if (!bundle) {
-    log("skip: no portfolio.json");
+    log("skip: no portfolio data");
     return { ran: false, reason: "no-portfolio" };
   }
 
@@ -174,7 +170,8 @@ export async function runDailySync({
     if (!q) return h;
     return {
       ...h,
-      price: round2(q.current),
+      // Scraped price is rupees → store as integer paisa (matches client).
+      price: Math.round(q.current * 100),
       dayChangePct: round2(q.changePct),
     };
   });
@@ -213,7 +210,7 @@ export async function runDailySync({
     savedAt: nowIso,
   };
 
-  await serializeSave(() => savePortfolioBundle(portfolioPath, nextBundle));
+  await serializeSave(() => saveBundle(db, nextBundle));
 
   log(
     `synced: ${quoteCount} quotes (stocks ${freshStock.length}/${tickers.length}), value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(snapshotIso)}`,
@@ -221,7 +218,7 @@ export async function runDailySync({
   return { ran: true, entry, quoteCount };
 }
 
-export function startScheduler({ portfolioPath, log = defaultLog } = {}) {
+export function startScheduler({ portfolioDbPath, log = defaultLog } = {}) {
   let timer = null;
   let stopped = false;
 
@@ -241,7 +238,7 @@ export function startScheduler({ portfolioPath, log = defaultLog } = {}) {
   const runAndReschedule = async () => {
     let result;
     try {
-      result = await runDailySync({ portfolioPath, log });
+      result = await runDailySync({ portfolioDbPath, log });
     } catch (err) {
       log(`run failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -264,7 +261,7 @@ export function startScheduler({ portfolioPath, log = defaultLog } = {}) {
   // CRON_RUN_ON_BOOT=1 (handled by env-guarded force flag in caller).
   const catchUp = async () => {
     try {
-      const bundle = await loadBundle(portfolioPath);
+      const bundle = loadBundleDb(getPortfolioDb(portfolioDbPath));
       const { pkDate } = psxCloseStatus();
       if (!bundle || !afterSnapshotTime(pkParts(new Date()))) return { stale: false };
       const history = Array.isArray(bundle.history) ? bundle.history : [];
@@ -274,7 +271,7 @@ export function startScheduler({ portfolioPath, log = defaultLog } = {}) {
         return { stale: false };
       }
       log(`catch-up: today (${pkDate}) missing, running now`);
-      const res = await runDailySync({ portfolioPath, log });
+      const res = await runDailySync({ portfolioDbPath, log });
       return { stale: res && res.reason === "quotes-stale" };
     } catch (err) {
       log(`catch-up failed: ${err instanceof Error ? err.message : String(err)}`);

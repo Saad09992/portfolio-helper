@@ -1,8 +1,12 @@
 import type { DerivedHolding, Holding } from "./types";
 import { HISTORY } from "./constants";
 
-export const storageKey = "psx-portfolio-tools:v1";
+// v2: money migrated from rupee-floats to integer paisa. Bumping the key makes
+// the browser ignore stale v1 (rupee) localStorage so the paisa disk snapshot
+// is the clean source on first load after upgrade.
+export const storageKey = "psx-portfolio-tools:v2";
 
+// Money fields (price, costBasis, dividendPerShare) are integer paisa.
 export const sampleHoldings: Holding[] = [
   {
     id: "1",
@@ -11,10 +15,10 @@ export const sampleHoldings: Holding[] = [
     sector: "Energy",
     account: "PSX",
     shares: 1200,
-    price: 146.2,
-    costBasis: 128.4,
+    price: 14620,
+    costBasis: 12840,
     dayChangePct: 1.2,
-    dividendPerShare: 10.5,
+    dividendPerShare: 1050,
     payoutDate: "2026-06-21",
   },
   {
@@ -24,10 +28,10 @@ export const sampleHoldings: Holding[] = [
     sector: "Financials",
     account: "PSX",
     shares: 800,
-    price: 153.75,
-    costBasis: 141.1,
+    price: 15375,
+    costBasis: 14110,
     dayChangePct: -0.4,
-    dividendPerShare: 9.25,
+    dividendPerShare: 925,
     payoutDate: "2026-05-28",
   },
   {
@@ -37,10 +41,10 @@ export const sampleHoldings: Holding[] = [
     sector: "Materials",
     account: "PSX",
     shares: 310,
-    price: 888.5,
-    costBasis: 840.25,
+    price: 88850,
+    costBasis: 84025,
     dayChangePct: 0.7,
-    dividendPerShare: 24,
+    dividendPerShare: 2400,
     payoutDate: "2026-07-03",
   },
   {
@@ -50,10 +54,10 @@ export const sampleHoldings: Holding[] = [
     sector: "Technology",
     account: "PSX",
     shares: 450,
-    price: 462.8,
-    costBasis: 401.9,
+    price: 46280,
+    costBasis: 40190,
     dayChangePct: 2.6,
-    dividendPerShare: 5.1,
+    dividendPerShare: 510,
     payoutDate: "2026-06-12",
   },
   {
@@ -63,10 +67,10 @@ export const sampleHoldings: Holding[] = [
     sector: "Utilities",
     account: "PSX",
     shares: 5000,
-    price: 4.92,
-    costBasis: 4.28,
+    price: 492,
+    costBasis: 428,
     dayChangePct: -1.1,
-    dividendPerShare: 0.35,
+    dividendPerShare: 35,
     payoutDate: "2026-08-15",
   },
 ];
@@ -119,6 +123,7 @@ export function computePortfolio(holdings: Holding[]): {
   return { holdings: withWeights, totalValue, totalCost, totalGainLoss };
 }
 
+// `value` is integer paisa; render as rupees with 2 decimals.
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-PK", {
     style: "currency",
@@ -126,7 +131,7 @@ export function formatCurrency(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
-    .format(value)
+    .format(value / 100)
     .replace("PKR", "Rs");
 }
 
@@ -135,9 +140,11 @@ export function formatPercent(value: number): string {
 }
 
 
+// `value` is integer paisa; render compact rupees (K/L/Cr).
 export function formatCompactCurrency(value: number): string {
-  const abs = Math.abs(value);
-  const sign = value < 0 ? "-" : "";
+  const rupees = value / 100;
+  const abs = Math.abs(rupees);
+  const sign = rupees < 0 ? "-" : "";
   if (abs >= 1e7) return `${sign}Rs ${(abs / 1e7).toFixed(2)} Cr`;
   if (abs >= 1e5) return `${sign}Rs ${(abs / 1e5).toFixed(2)} L`;
   if (abs >= 1e3) return `${sign}Rs ${(abs / 1e3).toFixed(1)}K`;

@@ -1,8 +1,10 @@
-import http from "http";
-import { createReadStream, statSync, existsSync } from "fs";
-import { resolve, dirname, join, extname, normalize } from "path";
+import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { Hono } from "hono";
+import { readFileSync, existsSync } from "fs";
+import { resolve, dirname, join, relative } from "path";
 import { fileURLToPath } from "url";
-import { createApiMiddleware } from "./api.mjs";
+import { registerApiRoutes } from "./api.mjs";
 import { runDailySync, startScheduler } from "./cron.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -12,7 +14,7 @@ const DATA_DIR = process.env.DATA_DIR
   ? resolve(process.env.DATA_DIR)
   : resolve(ROOT, "data");
 const DB_PATH = resolve(DATA_DIR, "psx-stocks.db");
-const PORTFOLIO_PATH = resolve(DATA_DIR, "portfolio.json");
+const PORTFOLIO_DB_PATH = resolve(DATA_DIR, "portfolio.sqlite");
 
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -22,91 +24,58 @@ if (!API_TOKEN) {
   console.warn("[psx] PSX_API_TOKEN not set — /api/* is unauthenticated");
 }
 
-function checkAuth(req, res) {
-  if (!API_TOKEN) return true;
-  const header = req.headers["authorization"] ?? "";
-  const expected = `Bearer ${API_TOKEN}`;
-  if (header === expected) return true;
-  res.writeHead(401, { "Content-Type": "application/json", "WWW-Authenticate": "Bearer" });
-  res.end(JSON.stringify({ error: "unauthorized" }));
-  return false;
-}
-
-const MIME = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".mjs": "application/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".map": "application/json; charset=utf-8",
-};
-
-const api = createApiMiddleware({
-  dbPath: DB_PATH,
-  portfolioPath: PORTFOLIO_PATH,
-});
-
-function serveFile(res, filePath, status = 200) {
-  const ext = extname(filePath).toLowerCase();
-  const type = MIME[ext] ?? "application/octet-stream";
-  const isImmutable = filePath.includes(`${DIST}/assets/`) || filePath.includes(`${DIST}\\assets\\`);
-  const cache = isImmutable
-    ? "public, max-age=31536000, immutable"
-    : "no-cache";
-  res.writeHead(status, { "Content-Type": type, "Cache-Control": cache });
-  createReadStream(filePath).pipe(res);
-}
-
-function serveStatic(req, res) {
-  const url = (req.url ?? "/").split("?")[0];
-  const safe = normalize(decodeURIComponent(url)).replace(/^([/\\])+/, "");
-  const candidate = join(DIST, safe);
-
-  if (!candidate.startsWith(DIST)) {
-    res.writeHead(403);
-    res.end("Forbidden");
-    return;
-  }
-
-  if (existsSync(candidate)) {
-    const st = statSync(candidate);
-    if (st.isFile()) return serveFile(res, candidate);
-  }
-
-  // SPA fallback
-  const indexHtml = join(DIST, "index.html");
-  if (existsSync(indexHtml)) return serveFile(res, indexHtml);
-
-  res.writeHead(404);
-  res.end("Not Found");
-}
-
 if (!existsSync(DIST)) {
   console.error(`[psx] dist/ not found at ${DIST}. Run "npm run build" first.`);
   process.exit(1);
 }
 
-const server = http.createServer((req, res) => {
-  if ((req.url ?? "").startsWith("/api/")) {
-    if (!checkAuth(req, res)) return;
-    return api(req, res, () => serveStatic(req, res));
+const app = new Hono();
+
+// Bearer-token auth on the API surface only. When no token is configured the
+// API is open (warned above), matching prior behavior.
+app.use("/api/*", async (c, next) => {
+  if (!API_TOKEN) return next();
+  const header = c.req.header("authorization") ?? "";
+  if (header === `Bearer ${API_TOKEN}`) return next();
+  return c.json({ error: "unauthorized" }, 401, { "WWW-Authenticate": "Bearer" });
+});
+
+registerApiRoutes(app, { dbPath: DB_PATH, portfolioDbPath: PORTFOLIO_DB_PATH });
+
+// Unmatched API paths (wrong method, bad path) → 404 JSON. Must precede the
+// static/SPA handlers so an API miss never falls through to index.html.
+app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
+
+// Static assets. serve-static roots are resolved from process.cwd(), so pass a
+// relative path. Long-cache the fingerprinted assets/ bundle, no-cache the rest.
+const DIST_REL = relative(process.cwd(), DIST) || ".";
+app.use(
+  "/*",
+  serveStatic({
+    root: DIST_REL,
+    onFound: (path, c) => {
+      c.header(
+        "Cache-Control",
+        path.includes("/assets/")
+          ? "public, max-age=31536000, immutable"
+          : "no-cache",
+      );
+    },
+  }),
+);
+
+// SPA fallback: any unmatched path serves index.html.
+const INDEX_HTML = join(DIST, "index.html");
+app.get("/*", (c) => {
+  if (existsSync(INDEX_HTML)) {
+    return c.html(readFileSync(INDEX_HTML, "utf-8"));
   }
-  serveStatic(req, res);
+  return c.text("Not Found", 404);
 });
 
 let stopScheduler = () => {};
 
-server.listen(PORT, HOST, () => {
+const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }, () => {
   console.log(`[psx] listening on http://${HOST}:${PORT}`);
   console.log(`[psx] data dir: ${DATA_DIR}`);
 
@@ -115,11 +84,11 @@ server.listen(PORT, HOST, () => {
   } else {
     if (process.env.CRON_RUN_ON_BOOT) {
       console.log("[psx:cron] CRON_RUN_ON_BOOT=1 — forcing immediate sync");
-      runDailySync({ portfolioPath: PORTFOLIO_PATH, force: true }).catch((err) =>
+      runDailySync({ portfolioDbPath: PORTFOLIO_DB_PATH, force: true }).catch((err) =>
         console.error("[psx:cron] forced run failed:", err),
       );
     }
-    stopScheduler = startScheduler({ portfolioPath: PORTFOLIO_PATH });
+    stopScheduler = startScheduler({ portfolioDbPath: PORTFOLIO_DB_PATH });
   }
 });
 

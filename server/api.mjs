@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
+import { z } from "zod";
 import { existsSync, mkdirSync } from "fs";
-import { copyFile, readFile, rename, rm, writeFile } from "fs/promises";
+import { getPortfolioDb, loadBundle, saveBundle } from "./portfolio-db.mjs";
+import { copyFile, rename, rm, writeFile } from "fs/promises";
 import { dirname } from "path";
 import { fetchWithTimeout, withRetry } from "./scrape-util.mjs";
 import { fetchQuoteSarmaaya, fetchDividendSarmaaya } from "./sarmaaya.mjs";
@@ -110,120 +112,97 @@ async function fetchDividendResilient(ticker) {
   return fetchDividendSarmaaya(ticker);
 }
 
-function sendJson(res, status, body) {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(typeof body === "string" ? body : JSON.stringify(body));
-}
+// Comma-separated tickers → cleaned, non-empty array. Rejects empty input.
+const tickersSchema = z
+  .string()
+  .transform((s) => s.split(",").map((t) => t.trim()).filter(Boolean))
+  .refine((arr) => arr.length > 0, { message: "tickers param required" });
 
-async function readBody(req) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf-8");
-}
-
-export function createApiMiddleware({ dbPath, portfolioPath }) {
-  return (req, res, next) => {
-    const url = req.url ?? "";
-
-    if (url.startsWith("/api/portfolio/load")) {
-      (async () => {
-        try {
-          if (!existsSync(portfolioPath)) return sendJson(res, 200, "null");
-          const raw = await readFile(portfolioPath, "utf-8");
-          sendJson(res, 200, raw);
-        } catch (err) {
-          sendJson(res, 500, { error: String(err) });
-        }
-      })();
-      return;
+// Register all /api routes on a Hono app. Methods are pinned (no more
+// prefix/method-agnostic startsWith matching), and inputs are Zod-validated.
+export function registerApiRoutes(app, { dbPath, portfolioDbPath }) {
+  app.get("/api/portfolio/load", (c) => {
+    try {
+      const bundle = loadBundle(getPortfolioDb(portfolioDbPath));
+      return c.json(bundle);
+    } catch (err) {
+      return c.json({ error: String(err) }, 500);
     }
+  });
 
-    if (url.startsWith("/api/portfolio/save") && req.method === "POST") {
-      serializeSave(async () => {
-        try {
-          const body = await readBody(req);
-          await savePortfolioBundle(portfolioPath, body);
-          sendJson(res, 200, { ok: true });
-        } catch (err) {
-          sendJson(res, 400, { error: String(err) });
-        }
-      });
-      return;
-    }
-
-    if (url.startsWith("/api/psx/stocks")) {
-      if (!existsSync(dbPath)) {
-        return sendJson(res, 404, { error: "Run npm run fetch-stocks first" });
-      }
+  app.post("/api/portfolio/save", async (c) => {
+    const body = await c.req.text();
+    return serializeSave(async () => {
       try {
-        const db = new Database(dbPath, { readonly: true });
-        const rows = db
-          .prepare(
-            "SELECT s.ticker, s.name, sec.name as sector FROM stocks s JOIN sectors sec ON s.sector = sec.code ORDER BY s.ticker",
-          )
-          .all();
-        db.close();
-        sendJson(res, 200, rows);
+        saveBundle(getPortfolioDb(portfolioDbPath), body);
+        return c.json({ ok: true });
       } catch (err) {
-        sendJson(res, 500, {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        return c.json({ error: String(err) }, 400);
       }
-      return;
-    }
+    });
+  });
 
-    if (url.startsWith("/api/psx/dividends")) {
-      const params = new URL(url, "http://localhost").searchParams;
-      const tickers = (params.get("tickers") ?? "").split(",").filter(Boolean);
-      if (tickers.length === 0) {
-        return sendJson(res, 400, { error: "tickers param required" });
-      }
-      Promise.all(tickers.map(fetchDividendResilient))
-        .then((results) => sendJson(res, 200, results.filter(Boolean)))
-        .catch((err) => {
-          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
-        });
-      return;
+  app.get("/api/psx/stocks", (c) => {
+    if (!existsSync(dbPath)) {
+      return c.json({ error: "Run npm run fetch-stocks first" }, 404);
     }
-
-    if (url.startsWith("/api/psx/benchmark")) {
-      const wantHistory = new URL(url, "http://localhost").searchParams.get("history");
-      fetchKse100()
-        .then((kse) => {
-          if (!kse) return sendJson(res, 200, null);
-          const body = wantHistory
-            ? kse
-            : { current: kse.current, asOf: kse.asOf, changePct: kse.changePct };
-          sendJson(res, 200, body);
-        })
-        .catch((err) => {
-          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
-        });
-      return;
+    try {
+      const db = new Database(dbPath, { readonly: true });
+      const rows = db
+        .prepare(
+          "SELECT s.ticker, s.name, sec.name as sector FROM stocks s JOIN sectors sec ON s.sector = sec.code ORDER BY s.ticker",
+        )
+        .all();
+      db.close();
+      return c.json(rows);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
     }
+  });
 
-    if (url.startsWith("/api/psx/market-data")) {
-      const params = new URL(url, "http://localhost").searchParams;
-      const tickers = (params.get("tickers") ?? "")
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      if (tickers.length === 0) {
-        return sendJson(res, 400, { error: "tickers param required" });
-      }
-      Promise.all(tickers.map(fetchQuoteResilient))
-        .then((quotes) => sendJson(res, 200, quotes.filter((q) => q !== null)))
-        .catch((err) => {
-          if (!res.headersSent) {
-            sendJson(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        });
-      return;
+  app.get("/api/psx/dividends", async (c) => {
+    const parsed = tickersSchema.safeParse(c.req.query("tickers") ?? "");
+    if (!parsed.success) {
+      return c.json({ error: "tickers param required" }, 400);
     }
+    try {
+      const results = await Promise.all(parsed.data.map(fetchDividendResilient));
+      return c.json(results.filter(Boolean));
+    } catch (err) {
+      return c.json({ error: String(err) }, 500);
+    }
+  });
 
-    if (typeof next === "function") return next();
-    sendJson(res, 404, { error: "not found" });
-  };
+  app.get("/api/psx/benchmark", async (c) => {
+    const wantHistory = c.req.query("history") != null;
+    try {
+      const kse = await fetchKse100();
+      if (!kse) return c.json(null);
+      const body = wantHistory
+        ? kse
+        : { current: kse.current, asOf: kse.asOf, changePct: kse.changePct };
+      return c.json(body);
+    } catch (err) {
+      return c.json({ error: String(err) }, 500);
+    }
+  });
+
+  app.get("/api/psx/market-data", async (c) => {
+    const parsed = tickersSchema.safeParse(c.req.query("tickers") ?? "");
+    if (!parsed.success) {
+      return c.json({ error: "tickers param required" }, 400);
+    }
+    try {
+      const quotes = await Promise.all(parsed.data.map(fetchQuoteResilient));
+      return c.json(quotes.filter((q) => q !== null));
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+  });
 }

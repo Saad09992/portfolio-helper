@@ -261,24 +261,25 @@ describe("trailingTwelveMonthDividend", () => {
 });
 
 describe("formatCompactCurrency", () => {
+  // Inputs are integer paisa (× 100 of the rupee amount shown).
   it("formats under 1K as full rupees", () => {
-    expect(formatCompactCurrency(847)).toBe("Rs 847");
+    expect(formatCompactCurrency(84_700)).toBe("Rs 847");
   });
 
   it("formats thousands with K suffix", () => {
-    expect(formatCompactCurrency(12500)).toBe("Rs 12.5K");
+    expect(formatCompactCurrency(1_250_000)).toBe("Rs 12.5K");
   });
 
   it("formats lakhs with L suffix", () => {
-    expect(formatCompactCurrency(250000)).toBe("Rs 2.50 L");
+    expect(formatCompactCurrency(25_000_000)).toBe("Rs 2.50 L");
   });
 
   it("formats crores with Cr suffix", () => {
-    expect(formatCompactCurrency(50000000)).toBe("Rs 5.00 Cr");
+    expect(formatCompactCurrency(5_000_000_000)).toBe("Rs 5.00 Cr");
   });
 
   it("preserves negative sign", () => {
-    expect(formatCompactCurrency(-25000)).toBe("-Rs 25.0K");
+    expect(formatCompactCurrency(-2_500_000)).toBe("-Rs 25.0K");
   });
 });
 

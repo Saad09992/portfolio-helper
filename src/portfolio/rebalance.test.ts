@@ -37,14 +37,16 @@ describe("isRebalanceSuggestion", () => {
   });
 
   it("suppresses gaps below the fractional floor on large portfolios", () => {
-    const total = 10_000_000;
-    expect(isRebalanceSuggestion(50_000, total)).toBe(false);
-    expect(isRebalanceSuggestion(100_001, total)).toBe(true);
+    // Paisa: total ₨10M, 1% fractional floor (₨100k) dominates MIN_PKR.
+    const total = 1_000_000_000;
+    expect(isRebalanceSuggestion(5_000_000, total)).toBe(false);
+    expect(isRebalanceSuggestion(10_000_100, total)).toBe(true);
   });
 
   it("treats negative gaps symmetrically", () => {
-    expect(isRebalanceSuggestion(-7000, 100_000)).toBe(true);
-    expect(isRebalanceSuggestion(-1000, 100_000)).toBe(false);
+    // Paisa: floor is MIN_PKR (₨5k) since total ₨100k → 1% = ₨1k < MIN_PKR.
+    expect(isRebalanceSuggestion(-700_000, 10_000_000)).toBe(true);
+    expect(isRebalanceSuggestion(-100_000, 10_000_000)).toBe(false);
   });
 
   it("forces a suggestion when cadenceOverride is true and gap is non-zero", () => {

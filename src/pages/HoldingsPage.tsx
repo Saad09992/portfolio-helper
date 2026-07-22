@@ -2,6 +2,7 @@ import type { DerivedHolding, Holding } from "../types";
 import type { HoldingsSortKey, HoldingsSortState } from "../uiTypes";
 import type { HoldingSources } from "../services/psx-scraper";
 import { formatCurrency, formatPercent } from "../utils";
+import { paisaToRupees } from "../money";
 import { Field } from "../components/ui/Field";
 import { SortHeader } from "../components/ui/SortHeader";
 import { StockSearch } from "../components/StockSearch";
@@ -205,18 +206,19 @@ export function HoldingsPage({
                             step="0.01"
                             min="0"
                             className="inline-edit num"
-                            defaultValue={holding.costBasis}
+                            defaultValue={paisaToRupees(holding.costBasis)}
                             title="Edit avg price (cost basis per share)"
                             onBlur={(e) => {
+                              // Widget is in rupees; handler converts to paisa.
                               const next = Number(e.currentTarget.value);
-                              if (next !== holding.costBasis) {
+                              if (next !== paisaToRupees(holding.costBasis)) {
                                 updateHoldingCostBasis(holding.id, next);
                               }
                             }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") e.currentTarget.blur();
                               if (e.key === "Escape") {
-                                e.currentTarget.value = String(holding.costBasis);
+                                e.currentTarget.value = String(paisaToRupees(holding.costBasis));
                                 e.currentTarget.blur();
                               }
                             }}

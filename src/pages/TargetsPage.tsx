@@ -79,7 +79,8 @@ function buildPlanCsv(rows: TargetRow[]): string {
       r.mode,
       (r.currentWeight * 100).toFixed(2),
       (r.targetWeight * 100).toFixed(2),
-      Math.abs(r.gapValue).toFixed(0),
+      // gapValue is paisa → export rupees
+      (Math.abs(r.gapValue) / 100).toFixed(2),
       r.mode === "ticker" ? r.shares.toFixed(0) : "",
     ].join(","),
   );

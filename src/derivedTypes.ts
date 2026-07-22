@@ -1,5 +1,4 @@
 import type {
-  DerivedHolding,
   InvestmentEntry,
   RebalanceCadence,
   TargetAllocation,
@@ -23,13 +22,6 @@ export type TargetRow = Omit<
   shares: number;
   cadenceState: CadenceState;
   daysUntilDue: number;
-};
-
-export type UpcomingDividend = {
-  ticker: string;
-  holding: DerivedHolding;
-  date: string;
-  dps: number;
 };
 
 export type InvestmentRow = InvestmentEntry & {

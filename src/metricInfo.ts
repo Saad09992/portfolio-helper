@@ -91,5 +91,3 @@ export const METRIC_INFO = {
       "Early on, deposits dominate — that's normal. Growth taking a bigger share over the years is the goal.",
   },
 } satisfies Record<string, MetricInfo>;
-
-export type MetricKey = keyof typeof METRIC_INFO;

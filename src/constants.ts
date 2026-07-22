@@ -37,11 +37,6 @@ export const PERSISTENCE = {
   SAVE_DEBOUNCE_MS: 500,
 } as const;
 
-export const MARKET = {
-  /** PSX regular-session close in Asia/Karachi */
-  CLOSE_PKT: "15:30",
-} as const;
-
 export const TARGET_DEFAULTS = {
   /** Default warn threshold (5%) applied to targets that don't specify one. */
   WARN_THRESHOLD: 0.05,

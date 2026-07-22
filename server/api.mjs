@@ -1,49 +1,18 @@
 import Database from "better-sqlite3";
 import { z } from "zod";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync } from "fs";
 import { getPortfolioDb, loadBundle, saveBundle } from "./portfolio-db.mjs";
-import { copyFile, rename, rm, writeFile } from "fs/promises";
-import { dirname } from "path";
 import { fetchWithTimeout, withRetry } from "./scrape-util.mjs";
 import { fetchQuoteSarmaaya, fetchDividendSarmaaya } from "./sarmaaya.mjs";
 import { fetchKse100 } from "./psx-index.mjs";
 
-const BACKUP_GENERATIONS = 5;
-
-async function rotateBackups(portfolioPath) {
-  if (!existsSync(portfolioPath)) return;
-  // Drop the oldest, shift the rest down, copy current → .bak.1
-  for (let i = BACKUP_GENERATIONS; i >= 1; i--) {
-    const src = i === 1 ? portfolioPath : `${portfolioPath}.bak.${i - 1}`;
-    const dst = `${portfolioPath}.bak.${i}`;
-    if (i === BACKUP_GENERATIONS) {
-      // Drop oldest; ignore if it doesn't exist
-      await rm(dst, { force: true });
-    }
-    if (i === 1 || existsSync(src)) {
-      await copyFile(src, dst).catch((err) => {
-        console.warn(`[psx] backup rotate ${src} -> ${dst} failed:`, err.message);
-      });
-    }
-  }
-}
-
+// Serialize saves so overlapping requests (and the cron job) apply in order.
 let saveQueue = Promise.resolve();
 export function serializeSave(work) {
   const next = saveQueue.then(work, work);
   // Swallow errors on the queue so one failure does not block subsequent saves
   saveQueue = next.catch(() => undefined);
   return next;
-}
-
-export async function savePortfolioBundle(portfolioPath, body) {
-  const json = typeof body === "string" ? body : JSON.stringify(body);
-  JSON.parse(json);
-  mkdirSync(dirname(portfolioPath), { recursive: true });
-  await rotateBackups(portfolioPath);
-  const tmp = `${portfolioPath}.tmp`;
-  await writeFile(tmp, json, "utf-8");
-  await rename(tmp, portfolioPath);
 }
 
 const PSX_DPS = "https://dps.psx.com.pk";

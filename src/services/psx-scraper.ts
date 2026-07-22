@@ -49,24 +49,6 @@ export async function fetchMarketData(tickers: string[]): Promise<MarketQuote[]>
   return data as MarketQuote[];
 }
 
-export async function fetchDividends(tickers: string[]): Promise<DividendInfo[]> {
-  if (tickers.length === 0) return [];
-
-  const response = await apiFetch(
-    `/api/psx/dividends?tickers=${tickers.join(",")}`,
-  );
-
-  if (!response.ok) {
-    throw new Error(`Dividends API returned ${response.status}`);
-  }
-
-  const data = await response.json();
-  if (data && typeof data === "object" && "error" in data && data.error) {
-    throw new Error(String(data.error));
-  }
-  return Array.isArray(data) ? data : [];
-}
-
 export function applyMarketData(
   holdings: Holding[],
   quotes: MarketQuote[],

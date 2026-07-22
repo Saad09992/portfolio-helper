@@ -82,15 +82,6 @@ export function createId(): string {
   );
 }
 
-export function normalizeText(value: string): string {
-  return value.trim();
-}
-
-export function toNumber(value: string): number {
-  const parsed = Number(value.replace(/,/g, "").trim());
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 export function computePortfolio(holdings: Holding[]): {
   holdings: DerivedHolding[];
   totalValue: number;
@@ -149,15 +140,6 @@ export function formatCompactCurrency(value: number): string {
   if (abs >= 1e5) return `${sign}Rs ${(abs / 1e5).toFixed(2)} L`;
   if (abs >= 1e3) return `${sign}Rs ${(abs / 1e3).toFixed(1)}K`;
   return `${sign}Rs ${abs.toFixed(0)}`;
-}
-
-export function formatCompactNumber(value: number): string {
-  const abs = Math.abs(value);
-  const sign = value < 0 ? "-" : "";
-  if (abs >= 1e7) return `${sign}${(abs / 1e7).toFixed(2)}Cr`;
-  if (abs >= 1e5) return `${sign}${(abs / 1e5).toFixed(2)}L`;
-  if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(1)}K`;
-  return `${sign}${abs.toFixed(0)}`;
 }
 
 export function formatSignedPercent(value: number, dp = 2): string {
@@ -297,19 +279,4 @@ export function xirr(flows: XirrFlow[], guess = 0.1): number {
     if (r < -0.999) r = -0.999;
   }
   return Number.isFinite(r) ? r : 0;
-}
-
-export function trailingTwelveMonthDividend(
-  payouts: { date: string; amount: number }[],
-  referenceDate: Date = new Date(),
-): number {
-  const cutoff = referenceDate.getTime() - 365 * 86400 * 1000;
-  let sum = 0;
-  for (const p of payouts) {
-    const t = new Date(p.date).getTime();
-    if (Number.isFinite(t) && t >= cutoff && t <= referenceDate.getTime()) {
-      sum += p.amount;
-    }
-  }
-  return sum;
 }

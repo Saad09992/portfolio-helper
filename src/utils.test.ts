@@ -5,7 +5,6 @@ import {
   formatCompactCurrency,
   formatDateShort,
   formatSignedPercent,
-  trailingTwelveMonthDividend,
   upsertDailySnapshot,
   xirr,
 } from "./utils";
@@ -240,25 +239,6 @@ describe("xirr", () => {
   });
 });
 
-describe("trailingTwelveMonthDividend", () => {
-  it("sums only payouts within 365 days", () => {
-    const ref = new Date("2026-05-11");
-    const sum = trailingTwelveMonthDividend(
-      [
-        { date: "2024-01-15", amount: 50 }, // older than 1 year, excluded
-        { date: "2025-06-01", amount: 10 },
-        { date: "2026-01-10", amount: 20 },
-        { date: "2026-04-20", amount: 30 },
-      ],
-      ref,
-    );
-    expect(sum).toBe(60);
-  });
-
-  it("returns 0 for empty list", () => {
-    expect(trailingTwelveMonthDividend([])).toBe(0);
-  });
-});
 
 describe("formatCompactCurrency", () => {
   // Inputs are integer paisa (× 100 of the rupee amount shown).

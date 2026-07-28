@@ -1,4 +1,6 @@
+import { useMemo } from "react";
 import type { DerivedHolding, Holding } from "../types";
+import type { StockLedgerRow } from "../ledger/perStock";
 import type { HoldingsSortKey, HoldingsSortState } from "../uiTypes";
 import type { HoldingSources } from "../services/psx-scraper";
 import { formatCurrency, formatPercent } from "../utils";
@@ -23,6 +25,10 @@ export type HoldingsPageProps = {
   updateHoldingCostBasis: (id: string, value: number) => void;
   removeHolding: (id: string) => void;
   quoteSources: HoldingSources;
+  /** true once the ledger owns share counts and cost basis */
+  ledgerActive: boolean;
+  stockRows: StockLedgerRow[];
+  onOpenLedger: () => void;
 };
 
 export function HoldingsPage({
@@ -39,9 +45,29 @@ export function HoldingsPage({
   updateHoldingCostBasis,
   removeHolding,
   quoteSources,
+  ledgerActive,
+  stockRows,
+  onOpenLedger,
 }: HoldingsPageProps) {
+  const rowByTicker = useMemo(() => {
+    const map = new Map<string, StockLedgerRow>();
+    for (const row of stockRows) map.set(row.ticker, row);
+    return map;
+  }, [stockRows]);
+
   return (
     <>
+      {ledgerActive ? (
+        <section className="panel holdings-ledger-note">
+          <p className="muted-note">
+            Share counts and average cost are derived from your trade ledger —
+            edit them by recording buys, sells and corporate actions.{" "}
+            <button type="button" className="button button-sm" onClick={onOpenLedger}>
+              Open Ledger
+            </button>
+          </p>
+        </section>
+      ) : (
       <section className="quick-add-card panel">
         <div className="panel-header compact">
           <div>
@@ -103,6 +129,7 @@ export function HoldingsPage({
           </div>
         </form>
       </section>
+      )}
 
       <section className="panel table-panel">
         <div className="panel-header">
@@ -136,13 +163,15 @@ export function HoldingsPage({
                 <SortHeader label="Weight" sortKey="weight" sort={holdingsSort} onClick={toggleSort} align="right" />
                 <SortHeader label="P&L today" sortKey="pnlToday" sort={holdingsSort} onClick={toggleSort} align="right" />
                 <SortHeader label="P&L total" sortKey="gainLoss" sort={holdingsSort} onClick={toggleSort} align="right" />
+                {ledgerActive ? <th className="right">Realized</th> : null}
+                {ledgerActive ? <th className="right">Net P&L</th> : null}
                 <th className="right">Action</th>
               </tr>
             </thead>
             <tbody>
               {sortedHoldings.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="empty-state">
+                  <td colSpan={ledgerActive ? 14 : 12} className="empty-state">
                     {holdingsSearch ? "No matches." : "No holdings yet. Use Quick add above or Import a saved backup."}
                   </td>
                 </tr>
@@ -152,6 +181,10 @@ export function HoldingsPage({
                   const src = quoteSources[holding.ticker.toUpperCase()];
                   const fallback =
                     src?.price === "sarmaaya" || src?.dividend === "sarmaaya";
+                  const stock = rowByTicker.get(holding.ticker.toUpperCase());
+                  // Ledger-derived positions are read-only: the trade log is
+                  // the only place share counts and cost basis can change.
+                  const editable = !syntheticCash && !ledgerActive;
 
                   return (
                     <tr key={holding.id}>
@@ -169,7 +202,7 @@ export function HoldingsPage({
                       <td>{holding.name}</td>
                       <td>{holding.sector}</td>
                       <td className="right">
-                        {syntheticCash ? (
+                        {!editable ? (
                           <span className="num">{holding.shares.toLocaleString()}</span>
                         ) : (
                           <input
@@ -197,7 +230,7 @@ export function HoldingsPage({
                         )}
                       </td>
                       <td className="right">
-                        {syntheticCash ? (
+                        {!editable ? (
                           <span className="num">{formatCurrency(holding.costBasis)}</span>
                         ) : (
                           <input
@@ -249,8 +282,22 @@ export function HoldingsPage({
                           </>
                         )}
                       </td>
+                      {ledgerActive ? (
+                        <td
+                          className={`right num ${(stock?.realized ?? 0) >= 0 ? "positive" : "negative"}`}
+                        >
+                          {stock ? formatCurrency(stock.realized) : "—"}
+                        </td>
+                      ) : null}
+                      {ledgerActive ? (
+                        <td
+                          className={`right num ${(stock?.totalNet ?? 0) >= 0 ? "positive" : "negative"}`}
+                        >
+                          {stock ? formatCurrency(stock.totalNet) : "—"}
+                        </td>
+                      ) : null}
                       <td className="right">
-                        {syntheticCash ? (
+                        {syntheticCash || ledgerActive ? (
                           "-"
                         ) : (
                           <button

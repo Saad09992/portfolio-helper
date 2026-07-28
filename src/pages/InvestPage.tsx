@@ -93,16 +93,6 @@ export function InvestPage({
             Cumulative %
           </span>
         </div>
-        <div className="invest-stat">
-          <span className={`invest-stat-num num ${investmentSummary.xirrPct >= 0 ? "positive" : "negative"}`}>
-            {investmentSummary.count >= 2
-              ? `${investmentSummary.xirrPct >= 0 ? "+" : ""}${investmentSummary.xirrPct.toFixed(2)}%`
-              : "—"}
-          </span>
-          <span className="invest-stat-label" title="Money-weighted return (XIRR): annualized rate that discounts each cashflow to today's value. Industry standard for personal investing performance.">
-            Annualized (XIRR)
-          </span>
-        </div>
       </section>
 
       <section className="panel">

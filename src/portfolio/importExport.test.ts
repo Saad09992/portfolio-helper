@@ -84,6 +84,46 @@ describe("parseImportBundle", () => {
     expect(result.holdings).toEqual([]);
   });
 
+  it("passes a v3 ledger and fee config through", () => {
+    const result = parseImportBundle({
+      version: 3,
+      transactions: [
+        {
+          id: "t1",
+          date: "2025-01-10",
+          type: "BUY",
+          ticker: "LUCK",
+          shares: 100,
+          price: 14500,
+        },
+      ],
+      feeConfig: { commissionPct: 0.15, cgtRatePct: 15 },
+    });
+    expect(result.transactions).toHaveLength(1);
+    expect(result.transactions?.[0].price).toBe(14500);
+    expect(result.feeConfig).toEqual({ commissionPct: 0.15, cgtRatePct: 15 });
+  });
+
+  it("accepts a ledger-only bundle", () => {
+    const result = parseImportBundle({
+      version: 3,
+      transactions: [{ id: "t1", date: "2025-01-10", type: "DEPOSIT", amount: 100000 }],
+    });
+    expect(result.transactions).toHaveLength(1);
+    expect(result.holdings).toBeNull();
+  });
+
+  it("reports no ledger for pre-v3 backups", () => {
+    const result = parseImportBundle({ version: 2, holdings: [] });
+    expect(result.transactions).toBeNull();
+    expect(result.feeConfig).toBeNull();
+  });
+
+  it("nulls a malformed fee config instead of importing it", () => {
+    const result = parseImportBundle({ version: 3, holdings: [], feeConfig: [1, 2] });
+    expect(result.feeConfig).toBeNull();
+  });
+
   it("throws ImportParseError on non-object input", () => {
     expect(() => parseImportBundle(null)).toThrow(ImportParseError);
     expect(() => parseImportBundle("string")).toThrow(ImportParseError);

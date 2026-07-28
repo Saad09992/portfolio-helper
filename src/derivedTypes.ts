@@ -35,6 +35,5 @@ export type InvestmentSummary = {
   latestValue: number;
   pnlValue: number;
   pnlPct: number;
-  xirrPct: number;
   count: number;
 };

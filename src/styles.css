@@ -20,8 +20,8 @@
 
   /* Text */
   --text: #e6edf3;
-  --muted: #8b97a6;
-  --muted-2: #5b6675;
+  --muted: #a3b0c0;
+  --muted-2: #7e8b9b;
 
   /* Brand / status */
   --accent: #00e676;
@@ -148,7 +148,7 @@ button {
 
 .hero-title .eyebrow {
   margin: 0 0 4px;
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
@@ -332,6 +332,11 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+/* Six KPI cards read as two clean rows of three instead of 4 + orphans. */
+.stats-grid.kpi-six {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .stat-card,
 .panel {
   border: 1px solid var(--panel-border);
@@ -415,7 +420,7 @@ button {
 }
 
 .field span {
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -440,7 +445,7 @@ button {
 }
 
 .field input::placeholder {
-  color: rgba(151, 168, 197, 0.55);
+  color: var(--muted-2);
 }
 
 .form-actions {
@@ -524,7 +529,7 @@ button {
 .stock-option small {
   grid-column: 1 / -1;
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 .cash-divider {
@@ -579,7 +584,7 @@ button {
 
 .panel-kicker {
   margin: 0 0 8px;
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.18em;
@@ -592,7 +597,7 @@ button {
 }
 
 .panel-meta {
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   color: var(--muted);
 }
 
@@ -669,7 +674,7 @@ button {
 }
 
 .donut-center small {
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   color: var(--muted);
 }
 
@@ -774,14 +779,14 @@ button {
 }
 
 .heatmap-pct {
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   color: var(--accent);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .heatmap-val {
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   color: var(--muted);
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -837,12 +842,12 @@ button {
 
 .treemap-block span {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.84rem;
 }
 
 .treemap-block small {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -894,7 +899,7 @@ button {
 }
 
 .target-form-label {
-  font-size: 0.66rem;
+  font-size: 0.76rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -1004,7 +1009,7 @@ button {
 }
 
 .target-filter::placeholder {
-  color: rgba(151, 168, 197, 0.5);
+  color: var(--muted-2);
 }
 
 .drift-summary {
@@ -1036,7 +1041,7 @@ button {
 }
 
 .drift-stat-label {
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1067,7 +1072,7 @@ button {
   padding: 5px 11px;
   color: var(--muted);
   background: transparent;
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   cursor: pointer;
   transition: all 140ms ease;
 }
@@ -1089,7 +1094,7 @@ button {
   padding: 5px 10px;
   background: rgba(4, 8, 18, 0.5);
   color: var(--text);
-  font-size: 0.78rem;
+  font-size: 0.84rem;
 }
 
 .drift-card {
@@ -1135,7 +1140,7 @@ button {
 }
 
 .drift-badge {
-  font-size: 0.6rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 2px 6px;
@@ -1154,7 +1159,7 @@ button {
 }
 
 .drift-current-num { color: var(--text); font-weight: 600; }
-.drift-arrow { color: var(--muted); font-size: 0.75rem; }
+.drift-arrow { color: var(--muted); font-size: 0.82rem; }
 .drift-target-num { color: var(--muted); }
 
 .drift-remove {
@@ -1212,12 +1217,12 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-variant-numeric: tabular-nums;
 }
 
 .drift-action-tag {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   padding: 3px 9px;
@@ -1235,7 +1240,7 @@ button {
 }
 
 .drift-delta {
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 600;
 }
 
@@ -1245,7 +1250,7 @@ button {
 .drift-shares {
   margin-left: auto;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.82rem;
 }
 
 .drift-mark {
@@ -1270,7 +1275,7 @@ button {
 }
 
 .drift-cadence-badge {
-  font-size: 0.66rem;
+  font-size: 0.76rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 2px 7px;
@@ -1310,7 +1315,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   padding: 2px 6px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.04);
@@ -1329,19 +1334,19 @@ button {
 .drift-threshold-label {
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 0.6rem;
+  font-size: 0.72rem;
 }
 
 .drift-threshold-unit {
   color: var(--muted);
-  font-size: 0.65rem;
+  font-size: 0.76rem;
 }
 
 .inline-edit--threshold {
   width: 44px;
   text-align: right;
   padding: 1px 3px;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
 }
 
 .drift-cadence-select {
@@ -1350,7 +1355,7 @@ button {
   padding: 2px 6px;
   background: rgba(4, 8, 18, 0.5);
   color: var(--text);
-  font-size: 0.7rem;
+  font-size: 0.78rem;
 }
 
 /* ── Suggested actions ── */
@@ -1376,7 +1381,7 @@ button {
 }
 
 .action-group-label {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   padding: 3px 9px;
@@ -1427,7 +1432,7 @@ button {
 .action-row-main strong { flex: 0 0 auto; }
 
 .action-row-mode {
-  font-size: 0.65rem;
+  font-size: 0.76rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -1445,7 +1450,7 @@ button {
 .action-row-detail {
   display: flex;
   gap: 10px;
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   flex-wrap: wrap;
@@ -1486,7 +1491,7 @@ button {
 .invest-stat-num.negative { color: var(--negative); }
 
 .invest-stat-label {
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -1502,7 +1507,7 @@ button {
 .invest-form .field { gap: 6px; }
 
 .invest-form .field span {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   letter-spacing: 0.1em;
 }
 
@@ -1534,7 +1539,7 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   color: var(--muted);
 }
 
@@ -1569,7 +1574,7 @@ button {
 
 .invest-chart-axis {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-family: inherit;
 }
 
@@ -1612,7 +1617,7 @@ button {
 
 .invest-fill-current {
   margin-left: 8px;
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   letter-spacing: 0.04em;
   padding: 2px 7px;
   border-radius: 5px;
@@ -1672,7 +1677,7 @@ th.right .sort-btn { text-align: right; }
 .sort-arrow {
   display: inline-block;
   width: 14px;
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   color: var(--positive);
 }
 
@@ -1752,7 +1757,7 @@ td {
 
 th {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -1831,6 +1836,7 @@ th {
   .dashboard-grid.dual,
   .stats-grid,
   .stats-grid.secondary,
+  .stats-grid.kpi-six,
   .pie-layout,
   .insight-grid,
   .insight-grid.dual {
@@ -1923,7 +1929,7 @@ th {
 }
 
 .line-chart-summary span {
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   color: var(--muted);
 }
 
@@ -1947,7 +1953,7 @@ th {
 }
 
 .line-chart-stale {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--muted);
   padding: 4px 9px;
   border-radius: 999px;
@@ -1969,7 +1975,7 @@ th {
   border: none;
   background: transparent;
   padding: 6px 12px;
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   color: var(--muted);
   border-radius: 999px;
   cursor: pointer;
@@ -1999,7 +2005,7 @@ th {
   border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.025);
   color: var(--text);
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   cursor: pointer;
   transition: opacity 140ms ease, border-color 140ms ease;
 }
@@ -2041,7 +2047,7 @@ th {
 
 .line-chart-axis {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-family: inherit;
   user-select: none;
 }
@@ -2105,7 +2111,7 @@ th {
 }
 
 .chart-tooltip-title {
-  font-size: 0.74rem;
+  font-size: 0.81rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
@@ -2116,7 +2122,7 @@ th {
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   padding: 3px 0;
 }
 
@@ -2205,7 +2211,7 @@ th {
 }
 
 .waterfall-value small {
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   color: var(--muted);
   font-weight: 400;
 }
@@ -2313,7 +2319,7 @@ th {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.76rem;
+  font-size: 0.83rem;
   color: var(--muted);
 }
 
@@ -2344,7 +2350,7 @@ th {
 }
 
 .dividend-bar-amount {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--text);
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -2355,7 +2361,7 @@ th {
 }
 
 .dividend-bar-label {
-  font-size: 0.66rem;
+  font-size: 0.76rem;
   color: var(--muted);
   text-align: center;
   text-transform: uppercase;
@@ -2392,7 +2398,7 @@ th {
 
 .ranked-rank {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -2428,7 +2434,7 @@ th {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.84rem;
 }
 
 /* ── Mobile chart adjustments ── */
@@ -2451,7 +2457,7 @@ th {
   }
 
   .dividend-bar-amount {
-    font-size: 0.6rem;
+    font-size: 0.72rem;
   }
 
   .ranked-row {
@@ -2688,7 +2694,7 @@ th {
 }
 
 .copy-summary-item-hint {
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   color: var(--muted);
 }
 
@@ -2711,8 +2717,8 @@ th {
 .panel-kicker,
 .panel-meta {
   text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.62rem;
+  letter-spacing: 0.09em;
+  font-size: 0.74rem;
   color: var(--muted);
 }
 .hero-actions {
@@ -2724,7 +2730,7 @@ th {
   align-items: center;
   gap: var(--s2);
   padding: 6px 10px;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--muted);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius);
@@ -2750,7 +2756,7 @@ th {
   border-radius: var(--radius-sm);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  font-size: 0.74rem;
+  font-size: 0.81rem;
   font-weight: 600;
   color: var(--muted);
   background: transparent;
@@ -2776,7 +2782,7 @@ th {
   background: var(--panel-2);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 0.76rem;
+  font-size: 0.83rem;
   font-weight: 600;
   padding: var(--s2) var(--s4);
 }
@@ -2825,7 +2831,7 @@ th {
 .stat-card p {
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   color: var(--muted);
 }
 .stat-card strong {
@@ -2841,8 +2847,8 @@ th {
 .field span,
 .target-form-label {
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 0.62rem;
+  letter-spacing: 0.07em;
+  font-size: 0.74rem;
   color: var(--muted);
 }
 .field input,
@@ -2884,7 +2890,7 @@ th {
   background: var(--panel-2);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   color: var(--muted);
 }
 .chip:hover {
@@ -2908,7 +2914,7 @@ th {
 .holdings-table thead th {
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   color: var(--muted);
   border-bottom: 1px solid var(--panel-border-strong);
   padding: var(--s2) var(--s3);
@@ -2953,7 +2959,7 @@ th {
   border-radius: var(--radius-sm);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-size: 0.66rem;
+  font-size: 0.76rem;
   color: var(--muted);
   border: 1px solid var(--panel-border-strong);
   background: transparent;
@@ -2978,7 +2984,7 @@ th {
   border-radius: var(--radius-sm);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-size: 0.6rem;
+  font-size: 0.72rem;
 }
 .drift-cadence-badge--overdue { color: var(--neg); }
 .drift-cadence-badge--due { color: var(--warn); }
@@ -2990,7 +2996,7 @@ th {
 .chart-empty {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: 0.86rem;
 }
 .empty-state::before {
   content: "> ";
@@ -3031,7 +3037,7 @@ th {
   min-width: 0;
 }
 .stat-delta {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -3065,7 +3071,7 @@ th {
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  font-size: 0.58rem;
+  font-size: 0.7rem;
   color: var(--muted);
 }
 .kpi-tile strong {
@@ -3080,7 +3086,7 @@ th {
   margin: 2px 0;
 }
 .kpi-tile span {
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   color: var(--muted-2);
 }
 
@@ -3143,18 +3149,18 @@ h2 .infotip-trigger {
   margin: 0;
 }
 .infotip-title {
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--accent);
 }
 .infotip-what {
-  font-size: 0.76rem;
+  font-size: 0.83rem;
   line-height: 1.45;
   color: var(--text);
 }
 .infotip-reading {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   line-height: 1.45;
   color: var(--muted);
   border-top: 1px solid var(--panel-border);
@@ -3185,7 +3191,7 @@ h2 .infotip-trigger {
 }
 .history-updated {
   color: var(--muted-2);
-  font-size: 0.66rem;
+  font-size: 0.76rem;
 }
 .history-chart-canvas {
   width: 100%;
@@ -3195,7 +3201,7 @@ h2 .infotip-trigger {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s4);
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   color: var(--muted);
 }
 .legend-line {
@@ -3237,7 +3243,7 @@ h2 .infotip-trigger {
   background: rgba(255, 179, 0, 0.12);
   color: var(--warn);
   font-family: var(--font-mono);
-  font-size: 0.56rem;
+  font-size: 0.68rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   vertical-align: middle;
@@ -3278,7 +3284,7 @@ h2 .infotip-trigger {
   display: flex;
   flex-direction: column;
   gap: var(--s2);
-  font-size: 0.78rem;
+  font-size: 0.84rem;
 }
 .gvd-legend-row {
   display: grid;
@@ -3298,7 +3304,7 @@ h2 .infotip-trigger {
 .gvd-note {
   margin: 0;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   line-height: 1.4;
 }
 .gvd-swatch {
@@ -3315,7 +3321,7 @@ h2 .infotip-trigger {
 .gvd-legend-pct {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
 }
 
 /* ===== Targets dashboard (Bloomberg revamp) ===== */
@@ -3330,7 +3336,7 @@ h2 .infotip-trigger {
 }
 .targets-dashboard .stat-card p {
   margin-bottom: 10px;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
 }
 @media (max-width: 1100px) {
   .targets-dashboard .stats-grid {
@@ -3340,7 +3346,7 @@ h2 .infotip-trigger {
 
 .button-sm {
   padding: 6px 12px;
-  font-size: 0.78rem;
+  font-size: 0.84rem;
 }
 
 /* Coverage validator banner */
@@ -3353,7 +3359,7 @@ h2 .infotip-trigger {
   border-radius: 12px;
   border: 1px solid var(--panel-border);
   background: var(--panel-2);
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   color: var(--muted);
 }
 .coverage-banner strong {
@@ -3399,7 +3405,7 @@ h2 .infotip-trigger {
   padding: 6px 10px;
   color: var(--text);
   background: rgba(4, 8, 18, 0.65);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   outline: none;
 }
 .preset-input:focus,
@@ -3424,7 +3430,7 @@ h2 .infotip-trigger {
   border-radius: 999px;
   border: 1px solid var(--panel-border);
   background: var(--panel-2);
-  font-size: 0.74rem;
+  font-size: 0.81rem;
   color: var(--text);
 }
 .preset-chip-del {
@@ -3463,7 +3469,7 @@ h2 .infotip-trigger {
   gap: 2px;
 }
 .turnover-label {
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -3492,7 +3498,7 @@ h2 .infotip-trigger {
   border: 1px solid rgba(255, 179, 0, 0.5);
   background: rgba(255, 179, 0, 0.08);
   color: var(--warn);
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   line-height: 1.4;
 }
 .rebalance-buy {
@@ -3503,7 +3509,7 @@ h2 .infotip-trigger {
   margin: -4px 0 6px;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 0.66rem;
+  font-size: 0.76rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   border: 1px solid rgba(255, 179, 0, 0.45);
@@ -3519,7 +3525,7 @@ h2 .infotip-trigger {
 /* Target donut legend head */
 .target-donut-legend-head {
   margin: 0 0 4px;
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted-2);
@@ -3529,12 +3535,12 @@ h2 .infotip-trigger {
 .target-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.86rem;
 }
 .target-table thead th {
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   color: var(--muted);
   border-bottom: 1px solid var(--panel-border-strong);
   padding: 6px 10px;
@@ -3563,10 +3569,154 @@ h2 .infotip-trigger {
   text-align: right;
 }
 .target-table .drift-cadence-select {
-  font-size: 0.74rem;
+  font-size: 0.81rem;
 }
 .target-row-actions {
   display: inline-flex;
   gap: 4px;
   justify-content: flex-end;
+}
+
+/* ── Per-stock ledger ─────────────────────────────────────────────────────── */
+
+.settings-group-title {
+  margin: var(--s5) 0 var(--s3);
+  font-size: 0.84rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* Itemized cost breakdown — the Settings worked example and the ledger entry
+   preview both read like a broker note, so they share one table style. */
+.cost-preview {
+  width: 100%;
+  margin: var(--s4) 0 0;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.cost-preview td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--panel-border);
+  color: var(--muted);
+}
+.cost-preview td:last-child {
+  color: var(--text);
+}
+.cost-preview-total td {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--panel-border-strong);
+}
+
+.ledger-migration {
+  border-color: var(--accent);
+  box-shadow: var(--glow);
+}
+
+.ledger-issues {
+  border-color: var(--warn);
+  box-shadow: var(--glow-warn);
+}
+.ledger-issue-list {
+  margin: 0;
+  padding-left: var(--s5);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+.ledger-issue-list li + li {
+  margin-top: var(--s1);
+}
+.ledger-issue-flag {
+  display: block;
+  color: var(--warn);
+  font-size: 0.8rem;
+}
+.ledger-row--issue td {
+  background: rgba(255, 179, 0, 0.06);
+}
+
+.txn-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.txn-tag--buy,
+.txn-tag--right {
+  color: var(--pos);
+  border-color: rgba(0, 230, 118, 0.4);
+}
+.txn-tag--sell,
+.txn-tag--withdraw {
+  color: var(--neg);
+  border-color: rgba(255, 82, 82, 0.4);
+}
+.txn-tag--dividend,
+.txn-tag--bonus,
+.txn-tag--deposit {
+  color: var(--info);
+  border-color: rgba(76, 201, 240, 0.4);
+}
+
+.stock-row {
+  cursor: pointer;
+}
+.stock-row:hover td {
+  background: var(--panel-2);
+}
+.stock-row-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.stock-detail {
+  border-color: var(--panel-border-strong);
+}
+.holdings-ledger-note {
+  display: flex;
+  align-items: center;
+}
+.holdings-ledger-note .button {
+  margin-left: var(--s2);
+}
+
+/* ── Legibility of small text ─────────────────────────────────────────────── */
+
+/* A panel-meta carrying a number ("CASH: RS 8,703.00") is data, not a label —
+   give it full text contrast rather than the muted label tone. */
+.panel-meta.num {
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
+/* Mono at small sizes renders thin on dark backgrounds; nudge the weight so
+   figures in tables and tiles stay as readable as the sans around them. */
+.num {
+  font-weight: 500;
+}
+
+/* Sub-labels under a KPI figure were the dimmest text in the app. */
+.kpi-tile span,
+.stat-card span {
+  color: var(--muted);
+}
+
+/* Secondary lines inside table cells (day %, gain %) sat at ~0.7rem inherited
+   from <small>, below everything else in the row. */
+table small {
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+
+/* Placeholders were nearly invisible against the input fill. */
+input::placeholder {
+  color: var(--muted-2);
+  opacity: 1;
 }

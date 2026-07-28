@@ -1,4 +1,6 @@
 import type { DerivedHolding, InvestmentEntry, SectorBucket } from "../types";
+import type { StockLedgerRow } from "../ledger/perStock";
+import type { TaxYear } from "../ledger/tax";
 import {
   type PortfolioSnapshot,
   formatCurrency,
@@ -34,7 +36,6 @@ export type SummaryInvestmentStats = {
   latestValue: number;
   pnlValue: number;
   pnlPct: number;
-  xirrPct: number;
   count: number;
 };
 
@@ -57,6 +58,10 @@ export type PortfolioSummaryInput = {
   investmentLedger: InvestmentEntry[];
   history: PortfolioSnapshot[];
   twrLatest: number | null;
+  /** Per-stock ledger rows. Empty (or absent) before the ledger is in use. */
+  stocks?: StockLedgerRow[];
+  /** Fiscal-year tax breakdown. Empty (or absent) with no realized activity. */
+  taxYears?: TaxYear[];
 };
 
 function mdTable(headers: string[], rows: string[][]): string {
@@ -209,11 +214,6 @@ function renderPerformance(input: PortfolioSummaryInput): string {
     cost > 0 ? (input.totals.unrealizedPnL / cost) * 100 : 0;
 
   const lines = ["## Performance"];
-  if (inv.count >= 2) {
-    lines.push(`- XIRR (money-weighted): ${formatSignedPercent(inv.xirrPct, 2)}`);
-  } else {
-    lines.push("- XIRR (money-weighted): — (needs ≥2 invest entries)");
-  }
   lines.push(`- Simple cumulative return: ${formatSignedPercent(simpleReturnPct, 2)}`);
   if (inv.count >= 1) {
     lines.push(
@@ -290,6 +290,78 @@ function renderInvestmentLedger(input: PortfolioSummaryInput): string {
   ].join("\n");
 }
 
+function renderStockLedger(input: PortfolioSummaryInput): string {
+  const stocks = input.stocks ?? [];
+  if (stocks.length === 0) return "";
+
+  const rows = stocks.map((s) => [
+    s.ticker,
+    s.shares.toLocaleString(),
+    formatCurrency(s.avgCost),
+    signedCurrency(s.unrealized),
+    signedCurrency(s.realized),
+    formatCurrency(s.dividends),
+    signedCurrency(s.totalNet),
+    formatSignedPercent(s.totalReturnPct, 1),
+    formatCurrency(s.feesPaid + s.taxesPaid),
+  ]);
+
+  return [
+    "## Per-stock P/L (net of fees and taxes)",
+    mdTable(
+      [
+        "Ticker",
+        "Shares",
+        "Avg cost",
+        "Unrealized",
+        "Realized",
+        "Dividends",
+        "Net P/L",
+        "Return",
+        "Fees + taxes",
+      ],
+      rows,
+    ),
+  ].join("\n");
+}
+
+function renderTaxes(input: PortfolioSummaryInput): string {
+  const years = input.taxYears ?? [];
+  if (years.length === 0) return "";
+
+  const rows = years.map((y) => [
+    y.fy,
+    formatCurrency(y.gains),
+    formatCurrency(y.losses),
+    formatCurrency(y.carryIn),
+    formatCurrency(y.taxable),
+    formatCurrency(y.cgtDue),
+    formatCurrency(y.cgtCharged),
+    signedCurrency(y.cgtRefundable),
+    formatCurrency(y.dividendWht),
+    formatCurrency(y.carryOut),
+  ]);
+
+  return [
+    "## Taxes by fiscal year",
+    mdTable(
+      [
+        "FY",
+        "Gains",
+        "Losses",
+        "Carried in",
+        "Taxable",
+        "CGT due",
+        "CGT deducted",
+        "Refundable",
+        "Dividend WHT",
+        "Carried out",
+      ],
+      rows,
+    ),
+  ].join("\n");
+}
+
 export function buildPortfolioSummary(
   input: PortfolioSummaryInput,
   depth: SummaryDepth,
@@ -314,6 +386,10 @@ export function buildPortfolioSummary(
     return sections.filter(Boolean).join("\n\n") + "\n";
   }
 
+  const stockLedger = renderStockLedger(input);
+  if (stockLedger) sections.push(stockLedger);
+  const taxes = renderTaxes(input);
+  if (taxes) sections.push(taxes);
   sections.push(renderDividends(input, 10));
   const history = renderHistory(input, 14);
   if (history) sections.push(history);

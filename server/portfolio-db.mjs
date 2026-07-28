@@ -101,6 +101,44 @@ export function loadBundle(db) {
       valueEom: i.valueEom,
     }));
 
+  const transactions = db
+    .prepare("SELECT * FROM transactions ORDER BY seq")
+    .all()
+    .map((t) => {
+      const txn = {
+        id: t.id,
+        date: t.date,
+        type: t.type,
+        ticker: t.ticker,
+        name: t.name,
+        sector: t.sector,
+        shares: t.shares,
+        price: t.price,
+        amount: t.amount,
+        note: t.note,
+      };
+      if (t.ratioFrom != null) txn.ratioFrom = t.ratioFrom;
+      if (t.ratioTo != null) txn.ratioTo = t.ratioTo;
+      if (t.feeOverride) {
+        try {
+          txn.feeOverride = JSON.parse(t.feeOverride);
+        } catch {
+          /* ignore malformed */
+        }
+      }
+      return txn;
+    });
+
+  const feeRow = db.prepare("SELECT json FROM fee_config WHERE id = 1").get();
+  let feeConfig = null;
+  if (feeRow?.json) {
+    try {
+      feeConfig = JSON.parse(feeRow.json);
+    } catch {
+      /* ignore malformed — client falls back to defaults */
+    }
+  }
+
   const history = db
     .prepare("SELECT * FROM portfolio_history ORDER BY date")
     .all()
@@ -127,6 +165,8 @@ export function loadBundle(db) {
     cash,
     targets,
     investments,
+    transactions,
+    feeConfig,
     history,
     lastFetchedAt: getMeta(db, "lastFetchedAt"),
     savedAt,
@@ -145,6 +185,9 @@ export function saveBundle(db, bundle) {
   const holdings = Array.isArray(b.holdings) ? b.holdings : [];
   const targets = Array.isArray(b.targets) ? b.targets : [];
   const investments = Array.isArray(b.investments) ? b.investments : [];
+  const transactions = Array.isArray(b.transactions) ? b.transactions : [];
+  const feeConfig =
+    b.feeConfig && typeof b.feeConfig === "object" ? b.feeConfig : null;
   const history = Array.isArray(b.history) ? b.history : [];
   const cashAvailable = num(b.cash && b.cash.available);
   const lastFetchedAt = b.lastFetchedAt == null ? null : String(b.lastFetchedAt);
@@ -152,7 +195,7 @@ export function saveBundle(db, bundle) {
 
   const tx = db.transaction(() => {
     db.exec(
-      "DELETE FROM payouts; DELETE FROM holdings; DELETE FROM cash; DELETE FROM targets; DELETE FROM investments; DELETE FROM portfolio_history; DELETE FROM meta;",
+      "DELETE FROM payouts; DELETE FROM holdings; DELETE FROM cash; DELETE FROM targets; DELETE FROM investments; DELETE FROM transactions; DELETE FROM fee_config; DELETE FROM portfolio_history; DELETE FROM meta;",
     );
 
     const insHolding = db.prepare(
@@ -225,6 +268,38 @@ export function saveBundle(db, bundle) {
         seq: i,
       }),
     );
+
+    const insTxn = db.prepare(
+      `INSERT INTO transactions (id, date, type, ticker, name, sector, shares, price, amount, ratioFrom, ratioTo, feeOverride, note, seq)
+       VALUES (@id, @date, @type, @ticker, @name, @sector, @shares, @price, @amount, @ratioFrom, @ratioTo, @feeOverride, @note, @seq)`,
+    );
+    transactions.forEach((t, i) =>
+      insTxn.run({
+        id: str(t.id),
+        date: str(t.date),
+        type: str(t.type),
+        ticker: str(t.ticker).toUpperCase(),
+        name: str(t.name),
+        sector: str(t.sector),
+        shares: num(t.shares),
+        price: num(t.price),
+        amount: num(t.amount),
+        ratioFrom: t.ratioFrom == null ? null : num(t.ratioFrom),
+        ratioTo: t.ratioTo == null ? null : num(t.ratioTo),
+        feeOverride:
+          t.feeOverride && typeof t.feeOverride === "object"
+            ? JSON.stringify(t.feeOverride)
+            : null,
+        note: str(t.note),
+        seq: i,
+      }),
+    );
+
+    if (feeConfig) {
+      db.prepare("INSERT INTO fee_config (id, json) VALUES (1, ?)").run(
+        JSON.stringify(feeConfig),
+      );
+    }
 
     const insHist = db.prepare(
       `INSERT INTO portfolio_history (date, totalValue, totalCost, gainLoss, kse100, shares_json)

@@ -103,6 +103,41 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    // Per-stock ledger: the transaction log that holdings are now derived from,
+    // plus the single editable broker fee / tax rate set. Money columns stay
+    // REAL for the same reason as v2 — integers below 2^53 store exactly.
+    version: 3,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS transactions (
+          id        TEXT PRIMARY KEY,
+          date      TEXT NOT NULL DEFAULT '',
+          type      TEXT NOT NULL DEFAULT '',
+          ticker    TEXT NOT NULL DEFAULT '',
+          name      TEXT NOT NULL DEFAULT '',
+          sector    TEXT NOT NULL DEFAULT '',
+          shares    REAL NOT NULL DEFAULT 0,
+          price     REAL NOT NULL DEFAULT 0,
+          amount    REAL NOT NULL DEFAULT 0,
+          ratioFrom REAL,
+          ratioTo   REAL,
+          feeOverride TEXT,
+          note      TEXT NOT NULL DEFAULT '',
+          seq       INTEGER
+        )
+      `);
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS transactions_ticker_date ON transactions(ticker, date)",
+      );
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS fee_config (
+          id   INTEGER PRIMARY KEY CHECK (id = 1),
+          json TEXT NOT NULL
+        )
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db) {

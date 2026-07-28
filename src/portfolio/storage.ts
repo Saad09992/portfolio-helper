@@ -11,6 +11,12 @@ import {
   storageKey,
 } from "../utils";
 import { normalizeHolding } from "./holdings";
+import {
+  DEFAULT_FEE_CONFIG,
+  normalizeFeeConfig,
+  type FeeConfig,
+} from "../ledger/feeConfig";
+import type { Transaction } from "../ledger/types";
 
 export function normalizeTarget(t: TargetAllocation): TargetAllocation {
   return {
@@ -23,6 +29,8 @@ export function normalizeTarget(t: TargetAllocation): TargetAllocation {
 }
 
 export const cashStorageKey = `${storageKey}:cash-buckets`;
+export const transactionsStorageKey = `${storageKey}:transactions`;
+export const feeConfigStorageKey = `${storageKey}:fee-config`;
 export const targetStorageKey = `${storageKey}:targets`;
 export const targetPresetStorageKey = `${storageKey}:target-presets`;
 export const investStorageKey = `${storageKey}:investments`;
@@ -115,6 +123,44 @@ export function loadInvestments(): InvestmentEntry[] {
   } catch {
     return [];
   }
+}
+
+export function loadTransactions(): Transaction[] {
+  if (typeof window === "undefined") return [];
+
+  const raw = window.localStorage.getItem(transactionsStorageKey);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as Transaction[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveTransactions(transactions: Transaction[]): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(transactionsStorageKey, JSON.stringify(transactions));
+}
+
+/** Always returns a complete config — a missing or corrupt one falls back to defaults. */
+export function loadFeeConfig(): FeeConfig {
+  if (typeof window === "undefined") return DEFAULT_FEE_CONFIG;
+
+  const raw = window.localStorage.getItem(feeConfigStorageKey);
+  if (!raw) return DEFAULT_FEE_CONFIG;
+
+  try {
+    return normalizeFeeConfig(JSON.parse(raw));
+  } catch {
+    return DEFAULT_FEE_CONFIG;
+  }
+}
+
+export function saveFeeConfig(config: FeeConfig): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(feeConfigStorageKey, JSON.stringify(config));
 }
 
 export function loadLastFetchedAt(): string | null {

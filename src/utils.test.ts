@@ -6,7 +6,6 @@ import {
   formatDateShort,
   formatSignedPercent,
   upsertDailySnapshot,
-  xirr,
 } from "./utils";
 import type { Holding } from "./types";
 
@@ -202,42 +201,6 @@ describe("upsertDailySnapshot", () => {
   });
 });
 
-describe("xirr", () => {
-  it("returns ~0% for matched in/out same-day flows", () => {
-    const rate = xirr([
-      { date: new Date("2025-01-01"), amount: -1000 },
-      { date: new Date("2026-01-01"), amount: 1000 },
-    ]);
-    expect(Math.abs(rate)).toBeLessThan(0.01);
-  });
-
-  it("returns ~10% for 1000 grown to 1100 over one year", () => {
-    const rate = xirr([
-      { date: new Date("2025-01-01"), amount: -1000 },
-      { date: new Date("2026-01-01"), amount: 1100 },
-    ]);
-    expect(rate).toBeCloseTo(0.1, 2);
-  });
-
-  it("handles multiple deposits", () => {
-    const rate = xirr([
-      { date: new Date("2025-01-01"), amount: -500 },
-      { date: new Date("2025-07-01"), amount: -500 },
-      { date: new Date("2026-01-01"), amount: 1100 },
-    ]);
-    expect(rate).toBeGreaterThan(0.05);
-    expect(rate).toBeLessThan(0.25);
-  });
-
-  it("returns 0 when flows are single-sided", () => {
-    expect(
-      xirr([
-        { date: new Date("2025-01-01"), amount: -100 },
-        { date: new Date("2025-02-01"), amount: -100 },
-      ]),
-    ).toBe(0);
-  });
-});
 
 
 describe("formatCompactCurrency", () => {

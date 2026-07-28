@@ -7,6 +7,10 @@ export type PortfolioFile = {
   cash?: unknown;
   targets?: unknown;
   investments?: unknown;
+  /** v3+ — the per-stock transaction ledger */
+  transactions?: unknown;
+  /** v3+ — broker fee / tax rates */
+  feeConfig?: unknown;
   history?: unknown;
   lastFetchedAt?: unknown;
   savedAt?: string;

@@ -102,13 +102,11 @@ export function OverviewPage({
       : "Add entries in Invest tab";
   return (
     <>
-      <section className="stats-grid">
+      <section className="stats-grid kpi-six">
         <StatCard
           label="Total value"
           value={formatCurrency(equityMarketValue)}
           detail={`${nonCashCount} position${nonCashCount === 1 ? "" : "s"} · excludes cash`}
-          series={valueSeries}
-          seriesTone="accent"
           info={METRIC_INFO.totalValue}
         />
         <StatCard
@@ -125,6 +123,14 @@ export function OverviewPage({
           series={pnlSeries}
           seriesTone={portfolio.totalGainLoss >= 0 ? "positive" : "negative"}
           info={METRIC_INFO.unrealizedPl}
+        />
+        <StatCard
+          label="Current portfolio value"
+          value={formatCurrency(portfolio.totalValue)}
+          detail={`Positions + ${formatCurrency(cashDraft.available)} cash · incl. unrealized P/L`}
+          series={valueSeries}
+          seriesTone="accent"
+          info={METRIC_INFO.portfolioValue}
         />
         <StatCard
           label="True return (TWR)"

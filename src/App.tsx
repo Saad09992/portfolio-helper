@@ -16,7 +16,6 @@ import {
   type PortfolioSnapshot,
   storageKey,
   upsertDailySnapshot,
-  xirr,
 } from "./utils";
 import { rupeesToPaisa, roundPaisa } from "./money";
 import { useConfirm } from "./confirmDialog";
@@ -59,6 +58,12 @@ import {
   targetStorageKey,
   type TargetPreset,
 } from "./portfolio/storage";
+import { useLedger } from "./hooks/useLedger";
+import type { Transaction } from "./ledger/types";
+import {
+  affectsLaterSales,
+  describeTransactionWithDate,
+} from "./ledger/describe";
 import { CopySummaryButton } from "./components/CopySummaryButton";
 import type { PortfolioSummaryInput } from "./portfolio/summary";
 import type { HoldingsSortKey, SortDir } from "./uiTypes";
@@ -67,9 +72,14 @@ import { HoldingsPage } from "./pages/HoldingsPage";
 import { TargetsPage } from "./pages/TargetsPage";
 import { IncomePage } from "./pages/IncomePage";
 import { InvestPage } from "./pages/InvestPage";
+import { LedgerPage } from "./pages/LedgerPage";
+import { StocksPage } from "./pages/StocksPage";
+import { TaxPage } from "./pages/TaxPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 // v2: monetary values are integer paisa (was rupee-floats in v1).
-const BACKUP_SCHEMA_VERSION = 2;
+// v3: adds the per-stock transaction ledger and the broker fee/tax config.
+const BACKUP_SCHEMA_VERSION = 3;
 
 type DraftHolding = Omit<Holding, "id" | "account">;
 
@@ -118,7 +128,11 @@ const emptyInvestmentDraft: DraftInvestment = {
 };
 
 function App() {
+  // `holdings` is the STORED row set: it carries scraped market data (price,
+  // day change, payouts). Once the ledger has entries, share counts and cost
+  // basis are derived from it instead — see `ledger.holdings`.
   const [holdings, setHoldings] = useState<Holding[]>(() => loadHoldings());
+  const ledger = useLedger(holdings);
   const [draft, setDraft] = useState<DraftHolding>(emptyDraft);
   const [cashDraft, setCashDraft] = useState<CashBuckets>(() => loadCashBuckets());
   const [targets, setTargets] = useState<TargetAllocation[]>(() => loadTargets());
@@ -128,7 +142,17 @@ function App() {
   const [targetPresets, setTargetPresets] = useState<TargetPreset[]>(() => loadTargetPresets());
   const [treemapMode, setTreemapMode] = useState<"sector" | "ticker">("sector");
   const [allocationView, setAllocationView] = useState<"map" | "ranked">("map");
-  const [page, setPage] = useState<"overview" | "holdings" | "targets" | "income" | "invest">("overview");
+  const [page, setPage] = useState<
+    | "overview"
+    | "holdings"
+    | "ledger"
+    | "stocks"
+    | "targets"
+    | "tax"
+    | "income"
+    | "invest"
+    | "settings"
+  >("overview");
   const [investments, setInvestments] = useState<InvestmentEntry[]>(() => loadInvestments());
   const [investDraft, setInvestDraft] = useState<DraftInvestment>(emptyInvestmentDraft);
   const [investError, setInvestError] = useState("");
@@ -149,6 +173,15 @@ function App() {
   const [draftError, setDraftError] = useState("");
   const [cashError, setCashError] = useState("");
   const [targetError, setTargetError] = useState("");
+
+  // Everything below renders from the ledger-derived view of the portfolio.
+  // Before the first transaction is recorded these fall back to the stored
+  // holdings and the hand-typed cash figure, so the app behaves exactly as it
+  // did until the user opts into the ledger.
+  const effectiveHoldings = ledger.holdings;
+  const effectiveCash: CashBuckets = ledger.hasLedger
+    ? { available: ledger.cash }
+    : cashDraft;
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(holdings));
@@ -191,6 +224,10 @@ function App() {
       if (data.cash && typeof data.cash === "object") setCashDraft(data.cash as CashBuckets);
       if (Array.isArray(data.targets)) setTargets((data.targets as TargetAllocation[]).map(normalizeTarget));
       if (Array.isArray(data.investments)) setInvestments(data.investments as InvestmentEntry[]);
+      if (Array.isArray(data.transactions)) {
+        ledger.replaceTransactions(data.transactions as Transaction[]);
+      }
+      if (data.feeConfig) ledger.replaceFeeConfig(data.feeConfig);
       if (Array.isArray(data.history)) setHistory(data.history as PortfolioSnapshot[]);
       if (typeof data.lastFetchedAt === "string") setLastFetchedAt(data.lastFetchedAt);
       hydratedRef.current = true;
@@ -202,19 +239,33 @@ function App() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
+    // Persist the DERIVED holdings and cash: the cron reads them straight back
+    // out of the bundle to price the daily snapshot, and it has no ledger of
+    // its own to replay.
     savePortfolioToDisk({
-      holdings,
-      cash: cashDraft,
+      holdings: effectiveHoldings,
+      cash: effectiveCash,
       targets,
       investments,
+      transactions: ledger.transactions,
+      feeConfig: ledger.feeConfig,
       history,
       lastFetchedAt,
     });
-  }, [holdings, cashDraft, targets, investments, history, lastFetchedAt]);
+  }, [
+    effectiveHoldings,
+    effectiveCash,
+    targets,
+    investments,
+    ledger.transactions,
+    ledger.feeConfig,
+    history,
+    lastFetchedAt,
+  ]);
 
   const holdingsWithCash = useMemo(
-    () => buildHoldingsWithCash(holdings, cashDraft),
-    [holdings, cashDraft],
+    () => buildHoldingsWithCash(effectiveHoldings, effectiveCash),
+    [effectiveHoldings, effectiveCash],
   );
 
   const portfolio = useMemo(
@@ -231,7 +282,8 @@ function App() {
   );
 
   const topHolding = [...nonCashPortfolio].sort((a, b) => b.weight - a.weight)[0];
-  const cashWeight = portfolio.totalValue > 0 ? cashDraft.available / portfolio.totalValue : 0;
+  const cashWeight =
+    portfolio.totalValue > 0 ? effectiveCash.available / portfolio.totalValue : 0;
   const cashMessage = getCashDeploymentIdea(cashWeight);
 
   const todayTs = Date.now();
@@ -449,26 +501,11 @@ function App() {
     const pnlValue = latestValue - totalInvested;
     const pnlPct = totalInvested > 0 ? (pnlValue / totalInvested) * 100 : 0;
 
-    let xirrPct = 0;
-    if (investmentRows.length >= 2 && latestValue > 0) {
-      const flows = investmentRows
-        .filter((row) => row.amount !== 0)
-        .map((row) => ({
-          date: new Date(row.date),
-          amount: -row.amount,
-        }));
-      const terminalDate = new Date(last!.date);
-      flows.push({ date: terminalDate, amount: latestValue });
-      const rate = xirr(flows, 0.1);
-      xirrPct = Number.isFinite(rate) ? rate * 100 : 0;
-    }
-
     return {
       totalInvested,
       latestValue,
       pnlValue,
       pnlPct,
-      xirrPct,
       count: investmentRows.length,
     };
   }, [investmentRows]);
@@ -493,7 +530,7 @@ function App() {
         unrealizedPnL: portfolio.totalGainLoss,
         dayPnL,
       },
-      cash: { available: cashDraft.available, weight: cashWeight },
+      cash: { available: effectiveCash.available, weight: cashWeight },
       holdings: nonCashPortfolio,
       sectors,
       targets: targetRows.map((r) => ({
@@ -516,13 +553,15 @@ function App() {
       investmentLedger: investments,
       history,
       twrLatest,
+      stocks: ledger.stockRows,
+      taxYears: ledger.taxYears,
     };
   }, [
     nonCashPortfolio,
     portfolio,
     equityMarketValue,
     totalInvested,
-    cashDraft.available,
+    effectiveCash.available,
     cashWeight,
     sectors,
     targetRows,
@@ -531,6 +570,8 @@ function App() {
     investments,
     history,
     lastFetchedAt,
+    ledger.stockRows,
+    ledger.taxYears,
   ]);
 
   const sortedHoldings = useMemo(() => {
@@ -901,8 +942,41 @@ function App() {
     setInvestments((current) => current.filter((e) => e.id !== id));
   }
 
+  async function removeLedgerEntry(id: string) {
+    const txn = ledger.transactions.find((t) => t.id === id);
+    if (!txn) return;
+
+    // Removing a lot-changing entry re-runs FIFO for every sale after it, so
+    // realized P&L and CGT on trades the user isn't touching can move.
+    const rematches = affectsLaterSales(txn, ledger.transactions);
+
+    const ok = await confirm({
+      title: "Remove ledger entry",
+      message: (
+        <>
+          <p>
+            Remove <strong>{describeTransactionWithDate(txn)}</strong>?
+          </p>
+          <p>
+            Holdings, cash and taxes are all derived from this ledger, so they
+            will change to match.
+            {rematches
+              ? " Later sales of this stock will re-match against different lots, which moves their realized P/L and CGT."
+              : ""}
+          </p>
+        </>
+      ),
+      confirmLabel: "Remove entry",
+      tone: "danger",
+    });
+    if (!ok) return;
+    ledger.removeTransaction(id);
+  }
+
+  // Inline edits only apply while the ledger is empty. Once trades exist, the
+  // ledger owns share counts and cost basis and the Holdings table is read-only.
   function updateHoldingCostBasis(id: string, value: number) {
-    if (!Number.isFinite(value) || value < 0) return;
+    if (ledger.hasLedger || !Number.isFinite(value) || value < 0) return;
     setHoldings((current) =>
       current.map((h) =>
         h.id === id ? { ...h, costBasis: rupeesToPaisa(value) } : h,
@@ -911,7 +985,7 @@ function App() {
   }
 
   function updateHoldingShares(id: string, value: number) {
-    if (!Number.isFinite(value) || value <= 0) return;
+    if (ledger.hasLedger || !Number.isFinite(value) || value <= 0) return;
     setHoldings((current) =>
       current.map((h) =>
         h.id === id ? { ...h, shares: Math.round(value) } : h,
@@ -920,8 +994,15 @@ function App() {
   }
 
   async function removeHolding(id: string) {
-    const holding = holdings.find((h) => h.id === id);
+    const holding = effectiveHoldings.find((h) => h.id === id);
     if (!holding) return;
+    if (ledger.hasLedger) {
+      pushToast(
+        "This position comes from the ledger — remove its trades on the Ledger tab.",
+        "warn",
+      );
+      return;
+    }
     const ok = await confirm({
       title: "Remove holding",
       message: (
@@ -939,7 +1020,7 @@ function App() {
 
 
   async function refreshPrices() {
-    const nonCash = holdings.filter((h) => !h.id.startsWith("cash-"));
+    const nonCash = effectiveHoldings.filter((h) => !h.id.startsWith("cash-"));
     if (nonCash.length === 0) {
       return;
     }
@@ -956,7 +1037,13 @@ function App() {
         pushToast(`Stock prices failed: ${String(err)}`, "error");
       }
 
-      const { holdings: updated, sources } = applyMarketData(holdings, quotes, []);
+      // Refresh against the derived rows so a ledger-only position (never in
+      // the stored set) still gets a price on its first fetch.
+      const { holdings: updated, sources } = applyMarketData(
+        effectiveHoldings,
+        quotes,
+        [],
+      );
       setHoldings(updated);
       setQuoteSources(sources);
       setLastFetchedAt(new Date().toISOString());
@@ -971,7 +1058,7 @@ function App() {
         );
       }
 
-      const snapshot = computePortfolio(buildHoldingsWithCash(updated, cashDraft));
+      const snapshot = computePortfolio(buildHoldingsWithCash(updated, effectiveCash));
       // Snapshot once/day after the 15:30 PKT close.
       const { afterClose } = psxCloseStatus();
       if (afterClose) {
@@ -1006,10 +1093,12 @@ function App() {
       version: BACKUP_SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       lastFetchedAt,
-      holdings,
-      cash: cashDraft,
+      holdings: effectiveHoldings,
+      cash: effectiveCash,
       targets,
       investments,
+      transactions: ledger.transactions,
+      feeConfig: ledger.feeConfig,
       history,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -1045,6 +1134,8 @@ function App() {
       const incomingCash = bundle.cash;
       const incomingTargets = bundle.targets as TargetAllocation[] | null;
       const incomingInvestments = bundle.investments as InvestmentEntry[] | null;
+      const incomingTransactions = bundle.transactions;
+      const incomingFeeConfig = bundle.feeConfig;
       const incomingHistory = bundle.history;
       const incomingLastFetched = bundle.lastFetchedAt;
       const exportedAt = bundle.exportedAt;
@@ -1060,11 +1151,17 @@ function App() {
             <ul>
               <li>
                 Holdings: <strong>{incomingHoldings?.length ?? 0}</strong>
-                {holdings.length > 0 ? ` (was ${holdings.length})` : ""}
+                {effectiveHoldings.length > 0 ? ` (was ${effectiveHoldings.length})` : ""}
+              </li>
+              <li>
+                Ledger entries: <strong>{incomingTransactions?.length ?? 0}</strong>
+                {ledger.transactions.length > 0 ? ` (was ${ledger.transactions.length})` : ""}
               </li>
               <li>
                 Cash: <strong>{formatCurrency(incomingCash?.available ?? 0)}</strong>
-                {cashDraft.available > 0 ? ` (was ${formatCurrency(cashDraft.available)})` : ""}
+                {effectiveCash.available > 0
+                  ? ` (was ${formatCurrency(effectiveCash.available)})`
+                  : ""}
               </li>
               <li>
                 Targets: <strong>{incomingTargets?.length ?? 0}</strong>
@@ -1095,6 +1192,10 @@ function App() {
       if (incomingCash) setCashDraft({ available: Number(incomingCash.available ?? 0) });
       if (incomingTargets) setTargets(incomingTargets.map(normalizeTarget));
       if (incomingInvestments) setInvestments(incomingInvestments);
+      // A pre-v3 backup has no ledger: clear it rather than leaving the old one
+      // to contradict the holdings just restored.
+      ledger.replaceTransactions(incomingTransactions ?? []);
+      if (incomingFeeConfig) ledger.replaceFeeConfig(incomingFeeConfig);
       if (incomingHistory) setHistory(incomingHistory);
       if (incomingLastFetched) setLastFetchedAt(incomingLastFetched);
     };
@@ -1119,7 +1220,7 @@ function App() {
             type="button"
             className="button button-primary"
             onClick={refreshPrices}
-            disabled={fetching || holdings.length === 0}
+            disabled={fetching || effectiveHoldings.length === 0}
           >
             {fetching ? "Fetching..." : "Refresh prices"}
           </button>
@@ -1128,7 +1229,7 @@ function App() {
           </button>
           <CopySummaryButton
             summaryInput={summaryInput}
-            disabled={holdings.length === 0}
+            disabled={effectiveHoldings.length === 0}
           />
           <label className="button" htmlFor="import-portfolio-file">
             Import
@@ -1151,9 +1252,13 @@ function App() {
         {([
           ["overview", "Overview"],
           ["holdings", "Holdings"],
+          ["ledger", "Ledger"],
+          ["stocks", "Stocks"],
           ["targets", "Targets"],
+          ["tax", "Tax"],
           ["income", "Income"],
           ["invest", "Invest"],
+          ["settings", "Settings"],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -1173,7 +1278,7 @@ function App() {
           nonCashCount={nonCashPortfolio.length}
           portfolio={portfolio}
           topHolding={topHolding}
-          cashDraft={cashDraft}
+          cashDraft={effectiveCash}
           cashWeight={cashWeight}
           investmentSummary={investmentSummary}
           savingsStats={savingsStats}
@@ -1212,6 +1317,43 @@ function App() {
           updateHoldingCostBasis={updateHoldingCostBasis}
           removeHolding={removeHolding}
           quoteSources={quoteSources}
+          ledgerActive={ledger.hasLedger}
+          stockRows={ledger.stockRows}
+          onOpenLedger={() => setPage("ledger")}
+        />
+      )}
+
+      {page === "ledger" && (
+        <LedgerPage
+          transactions={ledger.transactions}
+          feeConfig={ledger.feeConfig}
+          state={ledger.state}
+          cash={ledger.cash}
+          hasLedger={ledger.hasLedger}
+          storedHoldings={holdings}
+          storedCash={cashDraft.available}
+          today={pkDateOf(new Date().toISOString())}
+          addTransaction={ledger.addTransaction}
+          addTransactions={ledger.addTransactions}
+          removeTransaction={removeLedgerEntry}
+        />
+      )}
+
+      {page === "stocks" && (
+        <StocksPage
+          stockRows={ledger.stockRows}
+          state={ledger.state}
+          transactions={ledger.transactions}
+        />
+      )}
+
+      {page === "tax" && <TaxPage taxYears={ledger.taxYears} />}
+
+      {page === "settings" && (
+        <SettingsPage
+          feeConfig={ledger.feeConfig}
+          updateFeeConfig={ledger.updateFeeConfig}
+          replaceFeeConfig={ledger.replaceFeeConfig}
         />
       )}
 
@@ -1237,7 +1379,7 @@ function App() {
           buySuggestions={buySuggestions}
           sellSuggestions={sellSuggestions}
           cashMessage={cashMessage}
-          availableCash={cashDraft.available}
+          availableCash={effectiveCash.available}
           totalValue={portfolio.totalValue}
           coverage={coverage}
           turnover={turnover}
@@ -1254,6 +1396,22 @@ function App() {
           setCashDraft={setCashDraft}
           cashError={cashError}
           saveCashBuckets={saveCashBuckets}
+          ledgerActive={ledger.hasLedger}
+          ledgerCash={ledger.cash}
+          today={pkDateOf(new Date().toISOString())}
+          addCashEntry={(type, amount, date, note) =>
+            ledger.addTransaction({
+              date,
+              type,
+              ticker: "",
+              name: "",
+              sector: "",
+              shares: 0,
+              price: 0,
+              amount,
+              note,
+            })
+          }
         />
       )}
 

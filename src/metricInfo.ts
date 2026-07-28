@@ -20,6 +20,11 @@ export const METRIC_INFO = {
     reading:
       "Not good or bad on its own — it moves with prices. Compare it against Total invested to see whether you're up.",
   },
+  portfolioValue: {
+    what: "Everything you own right now: market value of your positions at the last fetched prices, plus uninvested cash. Unrealized gains and losses are already baked into the market value.",
+    reading:
+      "The single number for 'what is the portfolio worth today'. Above Total invested means you're ahead overall; below means you're behind. It moves with prices and with every deposit or withdrawal.",
+  },
   totalInvested: {
     what: "Net capital you put in, from the Invest tab ledger (deposits minus withdrawals).",
     reading:
@@ -89,5 +94,25 @@ export const METRIC_INFO = {
     what: "Splits portfolio value into deposits you made versus market gain or loss on top of them.",
     reading:
       "Early on, deposits dominate — that's normal. Growth taking a bigger share over the years is the goal.",
+  },
+  stockNetPnl: {
+    what: "Everything this stock has made you: realized profit from sales, unrealized profit on what you still hold, and dividends received — all after brokerage, CGT and withholding tax.",
+    reading:
+      "The honest scorecard for the position. It can be positive while the current holding is under water, if earlier sales or dividends already banked more than the paper loss.",
+  },
+  feeDrag: {
+    what: "Brokerage, statutory charges and taxes paid on this stock, as a share of the cash you put into it.",
+    reading:
+      "The cost of doing business. Under 1% is normal for buy-and-hold; several percent means frequent trading or small tickets are eating the return.",
+  },
+  cgtCarryForward: {
+    what: "Capital losses not yet used against gains. They offset future capital gains for three tax years, then expire.",
+    reading:
+      "A cushion on next year's tax bill. Watch the expiry: a loss that ages out saves you nothing.",
+  },
+  cgtRefundable: {
+    what: "CGT deducted trade-by-trade minus what the year's gains net of losses actually imply.",
+    reading:
+      "Positive means more was deducted than the netted position requires — expect it back at settlement. Negative means a shortfall to settle.",
   },
 } satisfies Record<string, MetricInfo>;

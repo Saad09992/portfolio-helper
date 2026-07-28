@@ -49,7 +49,6 @@ function baseInput(over: Partial<PortfolioSummaryInput> = {}): PortfolioSummaryI
       latestValue: 0,
       pnlValue: 0,
       pnlPct: 0,
-      xirrPct: 0,
       count: 0,
     },
     investmentLedger: [],
@@ -241,5 +240,84 @@ describe("buildPortfolioSummary — tables & math", () => {
     );
     expect(countTableDataRows(compact, "## Upcoming dividends")).toBe(4);
     expect(countTableDataRows(comp, "## Upcoming dividends")).toBe(10);
+  });
+});
+
+describe("ledger sections", () => {
+  const stocks = [
+    {
+      ticker: "LUCK",
+      name: "Lucky Cement",
+      sector: "Materials",
+      shares: 120,
+      avgCost: 14_800,
+      openCost: 1_776_000,
+      price: 16_000,
+      marketValue: 1_920_000,
+      unrealized: 144_000,
+      exitFees: 2900,
+      exitCgt: 21_165,
+      netIfSoldToday: 119_935,
+      realized: 36_819,
+      dividends: 25_500,
+      totalNet: 206_319,
+      invested: 2_214_800,
+      returned: 505_000,
+      totalReturnPct: 9.31,
+      feesPaid: 4952,
+      taxesPaid: 30_197,
+      feeDragPct: 1.59,
+      firstDate: "2025-01-10",
+      lastDate: "2025-07-10",
+      holdingDays: 320,
+      closed: { count: 1, wins: 1, winRatePct: 100, best: 43_316, worst: 43_316 },
+      contributionPct: 100,
+      isClosed: false,
+    },
+  ];
+
+  const taxYears = [
+    {
+      fy: "2024-25",
+      startDate: "2024-07-01",
+      endDate: "2025-06-30",
+      gains: 43_316,
+      losses: 0,
+      carryIn: 0,
+      offsetUsed: 0,
+      taxable: 43_316,
+      effectiveRatePct: 15,
+      cgtDue: 6497,
+      cgtCharged: 6497,
+      cgtRefundable: 0,
+      carryOut: 0,
+      dividendGross: 30_000,
+      dividendWht: 4500,
+      bonusTax: 19_200,
+      sellFees: 2208,
+      sales: [],
+      dividends: [],
+      bonuses: [],
+    },
+  ];
+
+  it("adds per-stock and tax tables in comprehensive mode", () => {
+    const md = buildPortfolioSummary(baseInput({ stocks, taxYears }), "comprehensive");
+    expect(md).toMatch(/## Per-stock P\/L \(net of fees and taxes\)/);
+    expect(md).toMatch(/## Taxes by fiscal year/);
+    expect(md).toMatch(/LUCK/);
+    expect(md).toMatch(/2024-25/);
+  });
+
+  it("leaves them out of compact mode", () => {
+    const md = buildPortfolioSummary(baseInput({ stocks, taxYears }), "compact");
+    expect(md).not.toMatch(/## Per-stock P\/L/);
+    expect(md).not.toMatch(/## Taxes by fiscal year/);
+  });
+
+  it("omits the sections entirely when the ledger is empty", () => {
+    const md = buildPortfolioSummary(baseInput(), "comprehensive");
+    expect(md).not.toMatch(/## Per-stock P\/L/);
+    expect(md).not.toMatch(/## Taxes by fiscal year/);
   });
 });

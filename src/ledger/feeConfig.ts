@@ -56,6 +56,14 @@ export type FeeConfig = {
   bonusTaxPct: number;
   /** Capital losses from fiscal years that predate the ledger. */
   openingLosses: OpeningLoss[];
+  /**
+   * paisa — cash the broker holds but will not let you trade with.
+   *
+   * Still your money, so it belongs in the portfolio's value; just not in what
+   * you can deploy. Subtracted only from the deployable figure, never from the
+   * balance itself, or the account would appear to have lost it.
+   */
+  withheldCash: number;
 };
 
 export const DEFAULT_FEE_CONFIG: FeeConfig = {
@@ -88,6 +96,7 @@ export const DEFAULT_FEE_CONFIG: FeeConfig = {
   dividendWhtPct: 15,
   bonusTaxPct: 10,
   openingLosses: [],
+  withheldCash: 0,
 };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
@@ -135,6 +144,7 @@ export function normalizeFeeConfig(raw: unknown): FeeConfig {
     dividendWhtPct: percent(c.dividendWhtPct, d.dividendWhtPct),
     bonusTaxPct: percent(c.bonusTaxPct, d.bonusTaxPct),
     openingLosses: normalizeOpeningLosses(c.openingLosses),
+    withheldCash: Math.round(nonNegative(c.withheldCash, d.withheldCash)),
   };
 }
 

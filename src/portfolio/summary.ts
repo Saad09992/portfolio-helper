@@ -478,6 +478,7 @@ function txnValue(t: Transaction, gross?: number): number {
     case "DEPOSIT":
     case "WITHDRAW":
     case "TAX":
+    case "EXPENSE":
       return t.amount;
     case "DIVIDEND":
       return gross ?? t.amount;
@@ -514,6 +515,7 @@ function txnCashDelta(
       return t.amount;
     case "WITHDRAW":
     case "TAX":
+    case "EXPENSE":
       return -t.amount;
     default:
       return 0;

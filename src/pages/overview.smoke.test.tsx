@@ -64,6 +64,7 @@ const empty: OverviewPageProps = {
   ledgerSummary: buildLedgerSummary([]),
   hasLedger: false,
   cgtReserve: 0,
+  withheldCash: 0,
   ledgerCash: 0,
   dayPnL: 0,
   top3Weight: 0,

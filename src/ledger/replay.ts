@@ -58,6 +58,13 @@ function emptyPosition(ticker: string): PositionState {
   };
 }
 
+/** How each cash outflow is named when it overdraws the account. */
+const LOW_CASH: Record<string, string> = {
+  WITHDRAW: "Withdrawal",
+  TAX: "Tax payment",
+  EXPENSE: "Charge",
+};
+
 /** CGT percentage for a lot, chosen by when the shares were acquired. */
 export function cgtRateFor(acquisitionDate: string, cfg: FeeConfig): number {
   return dayOf(acquisitionDate) < cfg.cgtLegacyCutoff
@@ -77,6 +84,7 @@ export function replayLedger(
   const issues: LedgerIssue[] = [];
   let cash = 0;
   let contributions = 0;
+  let expenses = 0;
 
   const fail = (txn: Transaction, message: string) => {
     issues.push({
@@ -100,24 +108,28 @@ export function replayLedger(
       continue;
     }
 
-    if (type === "DEPOSIT" || type === "WITHDRAW" || type === "TAX") {
+    if (
+      type === "DEPOSIT" ||
+      type === "WITHDRAW" ||
+      type === "TAX" ||
+      type === "EXPENSE"
+    ) {
       if (amount <= 0) {
         fail(txn, "Cash amount must be positive — entry skipped.");
         continue;
       }
       cash += type === "DEPOSIT" ? amount : -amount;
+      // Only DEPOSIT and WITHDRAW move capital. Tax and charges are costs: they
+      // spend the account's money without changing what was put into it.
       if (type === "DEPOSIT") contributions += amount;
       else if (type === "WITHDRAW") contributions -= amount;
+      else if (type === "EXPENSE") expenses += amount;
+
       if (type === "TAX") {
         taxPayments.push({ txnId: txn.id, date: day, amount, note: txn.note ?? "" });
       }
       if (cash < 0) {
-        fail(
-          txn,
-          type === "TAX"
-            ? "Tax payment takes the cash balance negative."
-            : "Withdrawal takes the cash balance negative.",
-        );
+        fail(txn, `${LOW_CASH[type]} takes the cash balance negative.`);
       }
       continue;
     }
@@ -333,6 +345,7 @@ export function replayLedger(
     bonusTaxes,
     taxPayments,
     contributions,
+    expenses,
     cash,
     issues,
   };

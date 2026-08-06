@@ -310,9 +310,11 @@ function main(argv) {
   const out = outIdx >= 0 ? args[outIdx + 1] : "statement-bundle.json";
   const cashIdx = args.findIndex((a) => a === "--cash");
   const cashTarget = cashIdx >= 0 ? money(args[cashIdx + 1]) : null;
+  const capIdx = args.findIndex((a) => a === "--capital");
+  const capital = capIdx >= 0 ? money(args[capIdx + 1]) : null;
   const cfgIdx = args.findIndex((a) => a === "--config");
   const lossIdx = args.findIndex((a) => a === "--opening-loss");
-  const consumed = new Set([outIdx + 1, cashIdx + 1, cfgIdx + 1, lossIdx + 1]);
+  const consumed = new Set([outIdx + 1, cashIdx + 1, cfgIdx + 1, lossIdx + 1, capIdx + 1]);
   const dir = args.find((a, i) => !a.startsWith("-") && !consumed.has(i)) ?? "statements";
 
   const securities = loadSecurities("data/psx-stocks.db");
@@ -390,16 +392,47 @@ function main(argv) {
       const fees = t.feeOverride?.total ?? 0;
       return sum + (t.type === "BUY" ? -(gross + fees) : gross - fees);
     }, 0);
-    const opening = cashTarget - swing;
+    const firstDate = ordered[0]?.date ?? new Date().toISOString().slice(0, 10);
+
+    // With `--capital` the deposit is the real figure and the leftover is a
+    // cost: charges the statements never itemised. Booking that as an EXPENSE
+    // rather than folding it into the deposit keeps the capital base honest —
+    // a smaller deposit would flatter every return measured against it.
+    const opening = capital ?? cashTarget - swing;
+    const shortfall = capital != null ? capital + swing - cashTarget : 0;
+
     ordered.unshift({
       id: idFor(["opening", String(opening)]),
-      date: ordered[0]?.date ?? new Date().toISOString().slice(0, 10),
+      date: firstDate,
       type: opening >= 0 ? "DEPOSIT" : "WITHDRAW",
       ticker: "", name: "", sector: "",
       shares: 0, price: 0, amount: Math.abs(opening),
-      note: "opening capital — balances the ledger to the broker's tradeable cash",
+      note:
+        capital != null
+          ? "opening capital"
+          : "opening capital — balances the ledger to the broker's tradeable cash",
     });
-    console.log(`  cash: trades swing ${rupees(swing)}, opening ${rupees(opening)} -> ${rupees(cashTarget)}`);
+
+    if (shortfall > 0) {
+      ordered.push({
+        id: idFor(["charges", String(shortfall)]),
+        date: ordered[ordered.length - 1]?.date ?? firstDate,
+        type: "EXPENSE",
+        ticker: "", name: "", sector: "",
+        shares: 0, price: 0, amount: shortfall,
+        note: "account charges not itemised on any statement",
+      });
+    } else if (shortfall < 0) {
+      onWarn(
+        `capital ${rupees(capital)} leaves ${rupees(-shortfall)} MORE cash than the target — ` +
+          `a deposit is missing from the Invest tab, or the cash target is too low. No charge booked.`,
+      );
+    }
+    console.log(
+      `  cash: trades swing ${rupees(swing)}, opening ${rupees(opening)}` +
+        (shortfall > 0 ? `, charges ${rupees(shortfall)}` : "") +
+        ` -> ${rupees(cashTarget)}`,
+    );
   }
 
   // Carrying the fee config in the bundle makes the import atomic. It matters

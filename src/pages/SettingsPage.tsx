@@ -214,6 +214,25 @@ export function SettingsPage({
           across the cutoff is taxed tranche by tranche.
         </p>
 
+        <h3 className="settings-group-title">Broker-held cash</h3>
+        <div className="form-grid">
+          <Field
+            label="Withheld / non-tradeable (Rs)"
+            type="number"
+            min={0}
+            step="0.01"
+            {...money(feeConfig.withheldCash, (rupees) => ({
+              withheldCash: rupeesToPaisa(rupees),
+            }))}
+          />
+        </div>
+        <p className="muted-note">
+          Cash the broker holds back and will not let you trade with. It stays in
+          your balance and in the portfolio&apos;s value — it is still your money
+          — but comes out of deployable cash, so that figure matches the
+          tradeable number your broker app shows.
+        </p>
+
         <h3 className="settings-group-title">Losses carried in from before the ledger</h3>
         <p className="muted-note">
           Capital losses from tax years that predate your first entry still

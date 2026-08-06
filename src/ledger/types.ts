@@ -15,6 +15,11 @@
  *   WITHDRAW      — cash movements in and out of the brokerage account.
  * - TAX           — a CGT settlement actually debited by NCCPL. Reduces cash and
  *                   draws down the accrued reserve for its fiscal year.
+ * - EXPENSE       — an account charge: SMS fees, custody, annual maintenance,
+ *                   or brokerage a statement never itemised. Spends cash and
+ *                   counts against P&L, but is NOT a withdrawal of capital —
+ *                   booking one as WITHDRAW would shrink the contribution base
+ *                   and flatter the return.
  */
 export type TxnType =
   | "BUY"
@@ -25,7 +30,8 @@ export type TxnType =
   | "SPLIT"
   | "DEPOSIT"
   | "WITHDRAW"
-  | "TAX";
+  | "TAX"
+  | "EXPENSE";
 
 /** Itemized trade costs, all paisa. `total` is the sum of the components. */
 export type FeeBreakdown = {
@@ -64,7 +70,7 @@ export const ZERO_FEES: FeeBreakdown = {
  * | DIVIDEND          | —      | paisa/share    | gross override|
  * | SPLIT             | —      | —              | —             |
  * | DEPOSIT/WITHDRAW  | —      | —              | paisa         |
- * | TAX               | —      | —              | paisa         |
+ * | TAX / EXPENSE     | —      | —              | paisa         |
  */
 export type Transaction = {
   id: string;
@@ -229,6 +235,8 @@ export type LedgerState = {
    * withdrawal of capital, so it is not netted off here.
    */
   contributions: number;
+  /** paisa — account charges booked via EXPENSE entries. A cost, not capital. */
+  expenses: number;
   /**
    * paisa — derived account cash: deposits − outflows + inflows.
    *

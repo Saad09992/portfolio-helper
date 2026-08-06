@@ -98,10 +98,32 @@ describe("buildLedgerSummary", () => {
     expect(s.contributions).toBe(contributions);
     expect(s.netReturnPct).toBeCloseTo((s.netTotal / contributions) * 100, 6);
     expect(s.feeDragPct).toBeCloseTo(
-      ((s.feesPaid + s.taxesBooked) / contributions) * 100,
+      ((s.feesPaid + s.expenses) / contributions) * 100,
       6,
     );
     expect(s.feeDragPct).toBeGreaterThan(0);
+  });
+
+  /**
+   * Accrued CGT is not money spent, and loss set-off may mean it is never owed.
+   * Counting it as drag would charge the user for a bill that does not exist.
+   */
+  it("keeps accrued CGT out of fee drag", () => {
+    const s = buildLedgerSummary(rowsFor(), 500_000);
+    expect(s.taxesBooked).toBeGreaterThan(0);
+    expect(s.feeDragPct).toBeLessThan(
+      ((s.feesPaid + s.taxesBooked) / 500_000) * 100,
+    );
+  });
+
+  it("treats account charges as a cost but not as a withdrawal of capital", () => {
+    const contributions = 500_000;
+    const plain = buildLedgerSummary(rowsFor(), contributions);
+    const charged = buildLedgerSummary(rowsFor(), contributions, 10_000);
+
+    expect(charged.netTotal).toBe(plain.netTotal - 10_000);
+    expect(charged.contributions).toBe(contributions); // capital base untouched
+    expect(charged.feeDragPct).toBeGreaterThan(plain.feeDragPct);
   });
 
   /**

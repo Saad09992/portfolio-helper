@@ -72,6 +72,8 @@ export type OverviewPageProps = {
   ledgerSummary: LedgerSummary;
   hasLedger: boolean;
   cgtReserve: number;
+  /** paisa — broker-held cash you cannot trade with. */
+  withheldCash: number;
   ledgerCash: number;
   dayPnL: number;
   /** Combined weight of the three largest positions. */
@@ -156,6 +158,7 @@ export function OverviewPage({
   ledgerSummary,
   hasLedger,
   cgtReserve,
+  withheldCash,
   ledgerCash,
   dayPnL,
   top3Weight,
@@ -192,7 +195,9 @@ export function OverviewPage({
     ? `${formatSignedPercent(ls.netReturnPct, 1)} on ${formatCompactCurrency(ls.contributions)} of capital · lifetime`
     : "Unrealized only — record trades on the Ledger tab";
 
-  const deployableCash = ledgerCash - cgtReserve;
+  // Withheld cash is still yours — it counts in the balance and the portfolio's
+  // value, just not in what can be put to work.
+  const deployableCash = ledgerCash - withheldCash - cgtReserve;
 
   // Treemap and ranked bars carry either a ticker or a sector depending on the
   // mode, so they resolve to different destinations: a stock detail, or Holdings
@@ -389,7 +394,9 @@ export function OverviewPage({
                     {formatCurrency(deployableCash)}
                   </strong>
                   <span>
-                    {formatCurrency(ledgerCash)} cash less {formatCurrency(cgtReserve)} CGT
+                    {formatCurrency(ledgerCash)} cash less{" "}
+                    {withheldCash > 0 ? `${formatCurrency(withheldCash)} withheld and ` : ""}
+                    {formatCurrency(cgtReserve)} CGT
                   </span>
                 </a>
               </div>

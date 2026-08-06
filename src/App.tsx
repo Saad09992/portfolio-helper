@@ -609,9 +609,18 @@ function App() {
     [nonCashPortfolio],
   );
 
+  // The Invest tab is the record of money actually moved in and out of the
+  // brokerage — the ledger cannot know it, because broker statements list
+  // trades and not funding, so its own deposits are only ever a plug. Fall back
+  // to the ledger figure when nothing has been logged there.
+  const contributions = useMemo(() => {
+    const logged = investments.reduce((sum, entry) => sum + entry.amount, 0);
+    return investments.length > 0 ? logged : ledger.state.contributions;
+  }, [investments, ledger.state.contributions]);
+
   const ledgerSummary = useMemo(
-    () => buildLedgerSummary(ledger.stockRows, ledger.state.contributions),
-    [ledger.stockRows, ledger.state.contributions],
+    () => buildLedgerSummary(ledger.stockRows, contributions, ledger.state.expenses),
+    [ledger.stockRows, contributions, ledger.state.expenses],
   );
 
   /** Combined weight of the three largest positions — concentration at a glance. */
@@ -1456,6 +1465,7 @@ function App() {
           ledgerSummary={ledgerSummary}
           hasLedger={ledger.hasLedger}
           cgtReserve={ledger.cgtReserve}
+          withheldCash={ledger.feeConfig.withheldCash}
           ledgerCash={effectiveCash.available}
           dayPnL={dayPnL}
           top3Weight={top3Weight}

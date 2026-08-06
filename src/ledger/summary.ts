@@ -17,14 +17,21 @@ export type LedgerSummary = {
   dividends: number;
 
   /**
-   * paisa — realized + unrealized + dividends. THE headline.
+   * paisa — realized + unrealized + dividends − expenses. THE headline.
+   *
+   * Satisfies `contributions + netTotal === cash + market value`: everything
+   * that happened to the money is in here exactly once.
    *
    * Do not subtract `feesPaid`/`taxesBooked` from this. Both are already inside
-   * the components: buy fees are capitalized into lot cost, sell fees and accrued
-   * CGT are deducted inside `realized`, and withholding is deducted inside
-   * `dividends`. Subtracting again double-counts every cost.
+   * the components: buy fees are capitalized into lot cost, sell fees are
+   * deducted inside `realized`, and withholding inside `dividends`. Accrued CGT
+   * is in neither — it is not spent, and may never be owed once losses are set
+   * off. Subtracting any of them again double-counts.
    */
   netTotal: number;
+
+  /** paisa — account charges: SMS, custody, maintenance, unitemised brokerage. */
+  expenses: number;
 
   /** paisa — brokerage and statutory charges paid across all trades. */
   feesPaid: number;
@@ -54,7 +61,7 @@ export type LedgerSummary = {
 
   /** netTotal as a percent of `contributions`. Whole percent. */
   netReturnPct: number;
-  /** (fees + taxes) as a percent of `contributions`. Whole percent. */
+  /** (fees + expenses) as a percent of `contributions`. Whole percent. */
   feeDragPct: number;
 
   /** paisa — unrealized less the estimated cost of liquidating everything now. */
@@ -86,6 +93,7 @@ const EMPTY: LedgerSummary = {
   invested: 0,
   returned: 0,
   contributions: 0,
+  expenses: 0,
   netReturnPct: 0,
   feeDragPct: 0,
   netIfSoldToday: 0,
@@ -106,8 +114,9 @@ const EMPTY: LedgerSummary = {
 export function buildLedgerSummary(
   rows: StockLedgerRow[],
   contributions = 0,
+  expenses = 0,
 ): LedgerSummary {
-  if (rows.length === 0) return { ...EMPTY, contributions };
+  if (rows.length === 0) return { ...EMPTY, contributions, expenses };
 
   let realized = 0;
   let unrealized = 0;
@@ -152,7 +161,7 @@ export function buildLedgerSummary(
     if (!worst || row.totalNet < worst.totalNet) worst = row;
   }
 
-  const netTotal = realized + unrealized + dividends;
+  const netTotal = realized + unrealized + dividends - expenses;
 
   const contributor = (row: StockLedgerRow | undefined) =>
     row
@@ -174,8 +183,10 @@ export function buildLedgerSummary(
     invested,
     returned,
     contributions,
+    expenses,
     netReturnPct: contributions > 0 ? (netTotal / contributions) * 100 : 0,
-    feeDragPct: contributions > 0 ? ((feesPaid + taxesBooked) / contributions) * 100 : 0,
+    // Accrued CGT is excluded: it has not been paid and may never be owed.
+    feeDragPct: contributions > 0 ? ((feesPaid + expenses) / contributions) * 100 : 0,
     netIfSoldToday,
     closedTrades,
     wins,

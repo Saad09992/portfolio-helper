@@ -20,13 +20,18 @@ const TYPES: { value: TxnType; label: string; hint: string }[] = [
   { value: "DEPOSIT", label: "Deposit", hint: "Cash paid into the brokerage account." },
   { value: "WITHDRAW", label: "Withdraw", hint: "Cash taken out of the account." },
   {
+    value: "EXPENSE",
+    label: "Charge",
+    hint: "An account charge — SMS, custody, annual maintenance. A cost, not a withdrawal, so it never touches your capital base.",
+  },
+  {
     value: "TAX",
     label: "Tax paid",
     hint: "A CGT settlement debited by NCCPL. Copy the amount off the statement — it draws down the reserve.",
   },
 ];
 
-const CASH_TYPES: TxnType[] = ["DEPOSIT", "WITHDRAW", "TAX"];
+const CASH_TYPES: TxnType[] = ["DEPOSIT", "WITHDRAW", "TAX", "EXPENSE"];
 
 type Draft = {
   type: TxnType;
@@ -485,7 +490,7 @@ export function LedgerPage({
 }
 
 function rowValue(txn: Transaction): number {
-  if (txn.type === "DEPOSIT" || txn.type === "WITHDRAW" || txn.type === "TAX") {
+  if (["DEPOSIT", "WITHDRAW", "TAX", "EXPENSE"].includes(txn.type)) {
     return txn.amount;
   }
   if (txn.type === "DIVIDEND") return txn.amount > 0 ? txn.amount : 0;
@@ -560,7 +565,7 @@ function buildPreview(
     return { lines };
   }
 
-  if (type === "DEPOSIT" || type === "WITHDRAW" || type === "TAX") {
+  if (type === "DEPOSIT" || type === "WITHDRAW" || type === "TAX" || type === "EXPENSE") {
     if (amount <= 0) return { lines };
     lines.push({ label: type === "DEPOSIT" ? "Cash in" : "Cash out", value: amount, strong: true });
     return { lines };

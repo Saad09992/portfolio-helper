@@ -40,10 +40,10 @@ describe("computeTradeCosts", () => {
 
     expect(value).toBe(1_450_000);
     expect(fees.commission).toBe(2175);
-    expect(fees.salesTax).toBe(283); // 13% of 2175 = 282.75 → 283
-    expect(fees.cdc).toBe(73); // 0.005% of 1,450,000 = 72.5 → 73
-    expect(fees.nccpl).toBe(73);
-    expect(fees.secp).toBe(22); // 0.0015% = 21.75 → 22
+    expect(fees.salesTax).toBe(326); // 15% of 2175 = 326.25 → 326
+    expect(fees.cdc).toBe(0); // billed flat, not as a percentage
+    expect(fees.nccpl).toBe(46); // 0.0032% of 1,450,000 = 46.4 → 46
+    expect(fees.secp).toBe(71); // 0.0049% = 71.05 → 71
     expect(fees.flatFee).toBe(500); // flat Rs 5.00 per trade
     expect(fees.total).toBe(
       fees.commission +
@@ -65,8 +65,8 @@ describe("computeTradeCosts", () => {
   it("lets an override replace one component and re-totals", () => {
     const fees = computeTradeCosts(100, 14500, cfg, { commission: 5000 });
     expect(fees.commission).toBe(5000);
-    expect(fees.salesTax).toBe(283); // untouched — only the named component moves
-    expect(fees.total).toBe(5000 + 283 + 73 + 73 + 22 + 500);
+    expect(fees.salesTax).toBe(326); // untouched — only the named component moves
+    expect(fees.total).toBe(5000 + 326 + 0 + 46 + 71 + 500);
   });
 
   it("honours an explicit total override", () => {
@@ -124,5 +124,44 @@ describe("normalizeFeeConfig", () => {
     expect(
       normalizeFeeConfig({ cgtLegacyCutoff: "2022-07-01T00:00:00Z" }).cgtLegacyCutoff,
     ).toBe("2022-07-01");
+  });
+
+  it("keeps well-formed opening losses, sorted by fiscal year", () => {
+    const out = normalizeFeeConfig({
+      openingLosses: [
+        { fy: "2025-26", amount: 461_858 },
+        { fy: "2023-24", amount: 1000 },
+      ],
+    });
+    expect(out.openingLosses).toEqual([
+      { fy: "2023-24", amount: 1000 },
+      { fy: "2025-26", amount: 461_858 },
+    ]);
+  });
+
+  it("drops half-typed and non-positive opening losses", () => {
+    const out = normalizeFeeConfig({
+      openingLosses: [
+        { fy: "2025-2", amount: 5000 }, // still being typed
+        { fy: "2025-26", amount: 0 }, // no loss to carry
+        { fy: "2025-26", amount: -100 }, // losses are stored positive
+        null,
+      ],
+    });
+    expect(out.openingLosses).toEqual([]);
+  });
+
+  it("collapses duplicate fiscal years into one bucket", () => {
+    const out = normalizeFeeConfig({
+      openingLosses: [
+        { fy: "2024-25", amount: 1000 },
+        { fy: "2024-25", amount: 250 },
+      ],
+    });
+    expect(out.openingLosses).toEqual([{ fy: "2024-25", amount: 1250 }]);
+  });
+
+  it("ignores a non-array openingLosses", () => {
+    expect(normalizeFeeConfig({ openingLosses: "nope" }).openingLosses).toEqual([]);
   });
 });

@@ -477,6 +477,7 @@ function txnValue(t: Transaction, gross?: number): number {
   switch (t.type) {
     case "DEPOSIT":
     case "WITHDRAW":
+    case "TAX":
       return t.amount;
     case "DIVIDEND":
       return gross ?? t.amount;
@@ -502,8 +503,9 @@ function txnCashDelta(
     case "BUY":
     case "RIGHT":
       return -(value + ctx.fees);
+    // CGT is accrued on a sale, never deducted from it — see replayLedger.
     case "SELL":
-      return value - ctx.fees - ctx.cgt;
+      return value - ctx.fees;
     case "DIVIDEND":
       return (ctx.grossByTxn.get(t.id) ?? t.amount) - ctx.wht;
     case "BONUS":
@@ -511,6 +513,7 @@ function txnCashDelta(
     case "DEPOSIT":
       return t.amount;
     case "WITHDRAW":
+    case "TAX":
       return -t.amount;
     default:
       return 0;
@@ -529,7 +532,8 @@ function renderTaxes(input: PortfolioSummaryInput): string {
     formatCurrency(y.taxable),
     formatCurrency(y.cgtDue),
     formatCurrency(y.cgtCharged),
-    signedCurrency(y.cgtRefundable),
+    formatCurrency(y.cgtPaid),
+    signedCurrency(y.cgtOutstanding),
     formatCurrency(y.dividendWht),
     formatCurrency(y.carryOut),
   ]);
@@ -544,8 +548,9 @@ function renderTaxes(input: PortfolioSummaryInput): string {
         "Carried in",
         "Taxable",
         "CGT due",
-        "CGT deducted",
-        "Refundable",
+        "Gross CGT",
+        "CGT paid",
+        "Outstanding",
         "Dividend WHT",
         "Carried out",
       ],

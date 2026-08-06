@@ -3651,7 +3651,8 @@ h2 .infotip-trigger {
   border-color: rgba(0, 230, 118, 0.4);
 }
 .txn-tag--sell,
-.txn-tag--withdraw {
+.txn-tag--withdraw,
+.txn-tag--tax {
   color: var(--neg);
   border-color: rgba(255, 82, 82, 0.4);
 }

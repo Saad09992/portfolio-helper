@@ -5,9 +5,14 @@
 // in ("2025-26" = 1 Jul 2025 → 30 Jun 2026). Capital losses on securities may
 // be carried forward against future capital gains for three tax years.
 //
-// What NCCPL actually deducts trade-by-trade (`cgtCharged`) is compared with
-// what the year's netted position implies (`cgtDue`) — the difference is the
-// refund or shortfall to expect at settlement.
+// The model mirrors an NCCPL CGT statement:
+//   `cgtCharged`  ≙ "Gross CGT"  — per-lot tax on gains, losses ignored
+//   `cgtDue`      ≙ "Net CGT"    — after gains and losses are netted
+//   `cgtPaid`                    — what NCCPL actually debited (TAX entries)
+//   `cgtOutstanding` = due − paid — the reserve still to set aside
+// Only `cgtPaid` is real cash. A month of pure losses produces gross CGT with a
+// net CGT of zero and nothing collected, which is exactly why the per-trade
+// figure must never be deducted from the cash balance.
 
 import { roundPaisa } from "../money";
 import type { FeeConfig } from "./feeConfig";
@@ -39,12 +44,14 @@ export type TaxYear = {
   taxable: number;
   /** effective rate applied, blended across the year's CGT tiers */
   effectiveRatePct: number;
-  /** paisa — CGT implied by the netted position */
+  /** paisa — CGT implied by the netted position ("Net CGT") */
   cgtDue: number;
-  /** paisa — CGT already deducted trade-by-trade */
+  /** paisa — CGT accrued trade-by-trade before netting ("Gross CGT") */
   cgtCharged: number;
-  /** paisa — positive means over-deducted (refund), negative means shortfall */
-  cgtRefundable: number;
+  /** paisa — CGT actually debited by NCCPL, from TAX entries dated this year */
+  cgtPaid: number;
+  /** paisa — `cgtDue − cgtPaid`. Positive is still owed, negative is overpaid. */
+  cgtOutstanding: number;
   /** paisa — unused losses carried into later years */
   carryOut: number;
   dividendGross: number;
@@ -91,7 +98,8 @@ function emptyYear(fy: string): TaxYear {
     effectiveRatePct: 0,
     cgtDue: 0,
     cgtCharged: 0,
-    cgtRefundable: 0,
+    cgtPaid: 0,
+    cgtOutstanding: 0,
     carryOut: 0,
     dividendGross: 0,
     dividendWht: 0,
@@ -146,11 +154,25 @@ export function buildTaxYears(state: LedgerState, cfg: FeeConfig): TaxYear[] {
     year.bonusTax += bonus.tax;
   }
 
+  for (const payment of state.taxPayments) {
+    const year = yearFor(payment.date);
+    if (!year) continue;
+    year.cgtPaid += payment.amount;
+  }
+
+  // Losses from before the ledger starts still shelter its gains, so they seed
+  // the carry-forward buckets. A bucket whose fiscal year predates every year
+  // on record has nowhere to be listed, but must still age out on schedule.
+  const opening: CarryBucket[] = (cfg.openingLosses ?? []).map((loss) => ({
+    fy: loss.fy,
+    amount: loss.amount,
+  }));
+
   const ordered = fillGaps([...years.values()].sort((a, b) => a.fy.localeCompare(b.fy)));
 
   // Walk forward applying losses: this year's first, then the oldest brought
   // forward, dropping buckets once they age out.
-  let buckets: CarryBucket[] = [];
+  let buckets: CarryBucket[] = [...opening].sort((a, b) => a.fy.localeCompare(b.fy));
   for (const year of ordered) {
     buckets = buckets.filter(
       (b) => fyIndex(year.fy) - fyIndex(b.fy) <= LOSS_CARRY_FORWARD_YEARS,
@@ -183,10 +205,21 @@ export function buildTaxYears(state: LedgerState, cfg: FeeConfig): TaxYear[] {
     year.effectiveRatePct =
       year.gains > 0 ? (year.cgtCharged / year.gains) * 100 : cfg.cgtRatePct;
     year.cgtDue = roundPaisa((year.taxable * year.effectiveRatePct) / 100);
-    year.cgtRefundable = year.cgtCharged - year.cgtDue;
+    year.cgtOutstanding = year.cgtDue - year.cgtPaid;
   }
 
   return ordered;
+}
+
+/**
+ * paisa — CGT accrued but not yet paid, across every year on record.
+ *
+ * Money that is sitting in the cash balance today but is owed to NCCPL. Years
+ * that were overpaid are excluded rather than netted off: a refund from an
+ * earlier year does not settle a later year's bill on its own.
+ */
+export function cgtReserve(years: TaxYear[]): number {
+  return years.reduce((sum, year) => sum + Math.max(0, year.cgtOutstanding), 0);
 }
 
 /** Insert empty rows for fiscal years between the first and last active one. */

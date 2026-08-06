@@ -93,23 +93,28 @@ export function TaxPage({ taxYears }: TaxPageProps) {
             <span>at {year.effectiveRatePct.toFixed(2)}% blended</span>
           </div>
           <div className="kpi-tile">
-            <p>CGT deducted</p>
+            <p>Gross CGT</p>
             <strong className="num">{formatCurrency(year.cgtCharged)}</strong>
-            <span>trade by trade</span>
+            <span>accrued before set-off</span>
+          </div>
+          <div className="kpi-tile">
+            <p>CGT paid</p>
+            <strong className="num">{formatCurrency(year.cgtPaid)}</strong>
+            <span>debited by NCCPL</span>
           </div>
           <div className="kpi-tile">
             <p>
-              {year.cgtRefundable >= 0 ? "Refundable" : "Shortfall"}
+              {year.cgtOutstanding >= 0 ? "Still owed" : "Overpaid"}
               <InfoTip
-                title="Refundable CGT"
-                what={METRIC_INFO.cgtRefundable.what}
-                reading={METRIC_INFO.cgtRefundable.reading}
+                title="Outstanding CGT"
+                what={METRIC_INFO.cgtOutstanding.what}
+                reading={METRIC_INFO.cgtOutstanding.reading}
               />
             </p>
-            <strong className={`num ${year.cgtRefundable >= 0 ? "positive" : "negative"}`}>
-              {formatCurrency(Math.abs(year.cgtRefundable))}
+            <strong className={`num ${year.cgtOutstanding > 0 ? "negative" : "positive"}`}>
+              {formatCurrency(Math.abs(year.cgtOutstanding))}
             </strong>
-            <span>vs what was deducted</span>
+            <span>due less paid</span>
           </div>
           <div className="kpi-tile">
             <p>Carried out</p>
@@ -146,7 +151,9 @@ export function TaxPage({ taxYears }: TaxPageProps) {
         <p className="muted-note">
           CGT is estimated from your own ledger using FIFO lot matching and the
           rates on the Settings tab. NCCPL computes the official figure; treat
-          this as a close check, not a filing.
+          this as a close check, not a filing. Nothing is deducted from your cash
+          when you sell — record each NCCPL debit as a <strong>Tax</strong> entry
+          on the Ledger tab and the amount still owed falls to match.
         </p>
       </section>
 

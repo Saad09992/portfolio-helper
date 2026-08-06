@@ -50,13 +50,13 @@ describe("BUY", () => {
     );
     const p = pos(state);
 
-    // value 1,000,000 + fees 2,310
-    // (1500 commission + 195 tax @13% + 50 + 50 + 15 + 500 flat)
+    // value 1,000,000 + fees 2,306
+    // (1500 commission + 225 tax @15% + 0 cdc + 32 nccpl + 49 secp + 500 flat)
     expect(p.shares).toBe(100);
-    expect(p.cost).toBe(1_002_310);
-    expect(p.feesPaid).toBe(2310);
+    expect(p.cost).toBe(1_002_306);
+    expect(p.feesPaid).toBe(2306);
     expect(p.lots).toHaveLength(1);
-    expect(state.cash).toBe(-1_002_310);
+    expect(state.cash).toBe(-1_002_306);
     expect(state.issues).toEqual([]);
   });
 
@@ -68,7 +68,7 @@ describe("BUY", () => {
 });
 
 describe("SELL", () => {
-  it("nets fees and CGT out of proceeds", () => {
+  it("takes fees out of the proceeds but accrues CGT without touching cash", () => {
     const state = replayLedger(
       [
         txn("BUY", "2025-01-10", { shares: 100, price: 10000 }),
@@ -85,15 +85,20 @@ describe("SELL", () => {
 
     const slice = state.realized[0];
     expect(slice.proceeds).toBe(1_200_000);
-    expect(slice.fees).toBe(2672);
-    expect(slice.cost).toBe(1_002_310);
-    expect(slice.gain).toBe(195_018);
+    expect(slice.fees).toBe(2667);
+    expect(slice.cost).toBe(1_002_306);
+    expect(slice.gain).toBe(195_027);
     expect(slice.cgtRatePct).toBe(15);
-    expect(slice.cgt).toBe(29_253);
+    expect(slice.cgt).toBe(29_254);
 
-    expect(p.realized).toBe(165_765); // gain − cgt
-    expect(p.taxesPaid).toBe(29_253);
-    expect(state.cash).toBe(-1_002_310 + 1_168_075);
+    expect(p.realized).toBe(165_773); // gain − cgt
+    expect(p.taxesPaid).toBe(29_254); // accrued, not paid
+
+    // Cash matches what the broker credits: gross less brokerage, CGT untouched.
+    // NCCPL collects centrally and only after netting the month's losses.
+    expect(p.returned).toBe(1_200_000 - 2667);
+    expect(state.cash).toBe(-1_002_306 + 1_197_333);
+    expect(state.taxPayments).toEqual([]);
   });
 
   it("consumes lots oldest-first, slicing the partial lot's cost", () => {
@@ -110,10 +115,10 @@ describe("SELL", () => {
     expect(state.realized.map((r) => r.shares)).toEqual([100, 50]);
     expect(state.realized.map((r) => r.buyDate)).toEqual(["2025-01-10", "2025-02-10"]);
     expect(p.shares).toBe(50);
-    expect(p.cost).toBe(100_431); // half of the second lot's remaining cost
+    expect(p.cost).toBe(100_430); // half of the second lot's remaining cost
     expect(p.lots).toHaveLength(1);
     expect(p.lots[0].date).toBe("2025-02-10");
-    expect(p.realized).toBe(337_562);
+    expect(p.realized).toBe(337_563);
   });
 
   it("books a loss with zero CGT", () => {
@@ -239,12 +244,12 @@ describe("BONUS", () => {
     const p = pos(state);
 
     expect(p.shares).toBe(120);
-    expect(p.cost).toBe(1_002_310); // unchanged — the shares were free
-    expect(p.cost / p.shares).toBeLessThan(1_002_310 / 100);
+    expect(p.cost).toBe(1_002_306); // unchanged — the shares were free
+    expect(p.cost / p.shares).toBeLessThan(1_002_306 / 100);
     expect(state.bonusTaxes[0].value).toBe(100_000);
     expect(state.bonusTaxes[0].tax).toBe(10_000);
     expect(p.taxesPaid).toBe(10_000);
-    expect(state.cash).toBe(-1_002_310 - 10_000);
+    expect(state.cash).toBe(-1_002_306 - 10_000);
   });
 
   it("dates the bonus lot at the issue, so it takes the current CGT tier", () => {
@@ -271,7 +276,7 @@ describe("SPLIT", () => {
     const p = pos(state);
 
     expect(p.shares).toBe(500);
-    expect(p.cost).toBe(1_002_310);
+    expect(p.cost).toBe(1_002_306);
     expect(p.lots[0].date).toBe("2025-01-10");
   });
 
@@ -325,7 +330,7 @@ describe("cash", () => {
       ],
       cfg,
     );
-    expect(state.cash).toBe(2_000_000 - 1_002_310 - 500_000);
+    expect(state.cash).toBe(2_000_000 - 1_002_306 - 500_000);
     expect(state.issues).toEqual([]);
   });
 
@@ -335,5 +340,45 @@ describe("cash", () => {
       cfg,
     );
     expect(state.issues[0].message).toMatch(/negative/);
+  });
+});
+
+describe("TAX", () => {
+  it("debits cash and records the payment", () => {
+    const state = replayLedger(
+      [
+        txn("DEPOSIT", "2025-01-01", { ticker: "", amount: 100_000 }),
+        txn("TAX", "2025-10-15", { ticker: "", amount: 29_254, note: "NCCPL Sep" }),
+      ],
+      cfg,
+    );
+
+    expect(state.cash).toBe(100_000 - 29_254);
+    expect(state.taxPayments).toEqual([
+      { txnId: expect.any(String), date: "2025-10-15", amount: 29_254, note: "NCCPL Sep" },
+    ]);
+    expect(state.issues).toEqual([]);
+  });
+
+  it("needs no ticker", () => {
+    const state = replayLedger(
+      [
+        txn("DEPOSIT", "2025-01-01", { ticker: "", amount: 100_000 }),
+        txn("TAX", "2025-10-15", { ticker: "", amount: 5000 }),
+      ],
+      cfg,
+    );
+    expect(state.positions.size).toBe(0);
+  });
+
+  it("rejects a non-positive amount", () => {
+    const state = replayLedger([txn("TAX", "2025-10-15", { ticker: "", amount: 0 })], cfg);
+    expect(state.issues).toHaveLength(1);
+    expect(state.taxPayments).toEqual([]);
+  });
+
+  it("flags a payment that overdraws the account", () => {
+    const state = replayLedger([txn("TAX", "2025-10-15", { ticker: "", amount: 100 })], cfg);
+    expect(state.issues[0].message).toMatch(/Tax payment takes the cash balance negative/);
   });
 });

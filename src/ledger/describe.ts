@@ -9,6 +9,7 @@ export function describeTransaction(txn: Transaction): string {
   switch (txn.type) {
     case "DEPOSIT":
     case "WITHDRAW":
+    case "TAX":
       return `${txn.type} ${formatCurrency(txn.amount)}`;
     case "SPLIT":
       return `SPLIT ${txn.ticker} ${txn.ratioFrom}:${txn.ratioTo}`;

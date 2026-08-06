@@ -8,6 +8,7 @@ import { paisaToRupees } from "../money";
 import { Field } from "../components/ui/Field";
 import { SortHeader } from "../components/ui/SortHeader";
 import { StockSearch } from "../components/StockSearch";
+import { pageHref, stockHref } from "../routes";
 
 type DraftHolding = Omit<Holding, "id" | "account">;
 
@@ -28,7 +29,6 @@ export type HoldingsPageProps = {
   /** true once the ledger owns share counts and cost basis */
   ledgerActive: boolean;
   stockRows: StockLedgerRow[];
-  onOpenLedger: () => void;
 };
 
 export function HoldingsPage({
@@ -47,7 +47,6 @@ export function HoldingsPage({
   quoteSources,
   ledgerActive,
   stockRows,
-  onOpenLedger,
 }: HoldingsPageProps) {
   const rowByTicker = useMemo(() => {
     const map = new Map<string, StockLedgerRow>();
@@ -62,9 +61,9 @@ export function HoldingsPage({
           <p className="muted-note">
             Share counts and average cost are derived from your trade ledger —
             edit them by recording buys, sells and corporate actions.{" "}
-            <button type="button" className="button button-sm" onClick={onOpenLedger}>
+            <a className="button button-sm" href={pageHref("ledger")}>
               Open Ledger
-            </button>
+            </a>
           </p>
         </section>
       ) : (
@@ -189,7 +188,15 @@ export function HoldingsPage({
                   return (
                     <tr key={holding.id}>
                       <td>
-                        {holding.ticker}
+                        {/* The synthetic cash row is not a stock, so it gets no
+                            drill-down link. */}
+                        {syntheticCash ? (
+                          holding.ticker
+                        ) : (
+                          <a className="ticker-link" href={stockHref(holding.ticker)}>
+                            {holding.ticker}
+                          </a>
+                        )}
                         {fallback ? (
                           <span
                             className="source-badge"

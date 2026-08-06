@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { EChartsCoreOption } from "echarts/core";
 import { EChart } from "./EChart";
 import { chartTokens } from "../../theme/chartTokens";
@@ -7,7 +7,18 @@ import { formatCurrency, formatPercent } from "../../utils";
 
 export type AllocItem = { key: string; label: string; value: number; weight: number };
 
-export function AllocationTreemap({ items }: { items: AllocItem[] }) {
+export function AllocationTreemap({
+  items,
+  onSelect,
+}: {
+  items: AllocItem[];
+  /** Receives the item's `key` — a ticker or a sector, depending on the mode. */
+  onSelect?: (key: string) => void;
+}) {
+  // See Heatmap: `onInit` fires once, so the callback is read through a ref.
+  const cbRef = useRef(onSelect);
+  cbRef.current = onSelect;
+
   const option = useMemo<EChartsCoreOption>(() => {
     const t = chartTokens();
     const sorted = [...items].sort((a, b) => b.value - a.value);
@@ -46,13 +57,31 @@ export function AllocationTreemap({ items }: { items: AllocItem[] }) {
             name: it.label,
             value: it.value,
             weight: it.weight,
-            itemStyle: { color: getSliceColor(i) },
+            // The key, not the label — sector names and tickers can differ.
+            itemKey: it.key,
+            itemStyle: {
+              color: getSliceColor(i),
+              cursor: onSelect ? "pointer" : "default",
+            },
           })),
         },
       ],
     };
-  }, [items]);
+  }, [items, onSelect]);
 
   if (items.length === 0) return <div className="chart-empty">No data</div>;
-  return <EChart option={option} height={420} />;
+  return (
+    <EChart
+      option={option}
+      height={420}
+      className={onSelect ? "chart-clickable" : undefined}
+      onInit={(chart) => {
+        // `nodeClick: false` only disables zoom-on-click; the event still fires.
+        chart.on("click", (params) => {
+          const key = (params.data as { itemKey?: string } | undefined)?.itemKey;
+          if (key) cbRef.current?.(key);
+        });
+      }}
+    />
+  );
 }

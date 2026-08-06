@@ -4,17 +4,25 @@ import { LOSS_CARRY_FORWARD_YEARS } from "../ledger/tax";
 import { METRIC_INFO } from "../metricInfo";
 import { InfoTip } from "../components/ui/InfoTip";
 import { formatCurrency, formatDateShort } from "../utils";
+import { taxHref } from "../routes";
 
 export type TaxPageProps = {
   taxYears: TaxYear[];
+  /**
+   * Selected fiscal year. Optional so the page still works uncontrolled — see
+   * StocksPage. Navigation itself happens through the chip anchors, so there is
+   * no onSelect counterpart.
+   */
+  selectedFy?: string | null;
 };
 
 const signed = (paisa: number) =>
   `${paisa > 0 ? "+" : paisa < 0 ? "-" : ""}${formatCurrency(Math.abs(paisa))}`;
 
-export function TaxPage({ taxYears }: TaxPageProps) {
+export function TaxPage({ taxYears, selectedFy: selectedFyProp }: TaxPageProps) {
   const latest = taxYears[taxYears.length - 1];
-  const [selectedFy, setSelectedFy] = useState<string | null>(null);
+  const [localFy, setLocalFy] = useState<string | null>(null);
+  const selectedFy = selectedFyProp !== undefined ? selectedFyProp : localFy;
   const year = taxYears.find((y) => y.fy === selectedFy) ?? latest;
 
   if (!year) {
@@ -45,16 +53,19 @@ export function TaxPage({ taxYears }: TaxPageProps) {
               {formatDateShort(year.endDate)}
             </h2>
           </div>
-          <div className="chip-group">
+          {/* Anchors so a tax year is linkable; the onClick keeps the page working
+              when it's rendered uncontrolled (no `selectedFy` prop). */}
+          <div className="chip-group" role="group" aria-label="Tax year">
             {taxYears.map((y) => (
-              <button
+              <a
                 key={y.fy}
-                type="button"
                 className={`chip ${y.fy === year.fy ? "chip--active" : ""}`}
-                onClick={() => setSelectedFy(y.fy)}
+                href={taxHref(y.fy)}
+                aria-current={y.fy === year.fy ? "true" : undefined}
+                onClick={() => setLocalFy(y.fy)}
               >
                 {y.fy}
-              </button>
+              </a>
             ))}
           </div>
         </div>

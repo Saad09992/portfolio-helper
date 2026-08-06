@@ -4,6 +4,7 @@ import type { TargetRow } from "../derivedTypes";
 import { DRIFT } from "../constants";
 import { formatCurrency, formatPercent } from "../utils";
 import { Combobox } from "../components/ui/Combobox";
+import { ChipGroup } from "../components/ui/ChipGroup";
 import { CadenceBadge } from "../components/CadenceBadge";
 import { ActionRow } from "../components/ActionRow";
 import { StatCard } from "../components/ui/StatCard";
@@ -286,18 +287,15 @@ export function TargetsPage({
               <h2>Current vs target</h2>
             </div>
             {hasSectorTargets && hasTickerTargets && (
-              <div className="chip-group">
-                {(["sector", "ticker"] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    className={`chip ${donutMode === m ? "chip--active" : ""}`}
-                    onClick={() => setDonutMode(m)}
-                  >
-                    {m === "sector" ? "Sector" : "Ticker"}
-                  </button>
-                ))}
-              </div>
+              <ChipGroup
+                ariaLabel="Allocation mode"
+                value={donutMode}
+                onChange={setDonutMode}
+                options={[
+                  { value: "sector", label: "Sector" },
+                  { value: "ticker", label: "Ticker" },
+                ]}
+              />
             )}
           </div>
           <TargetDonut rows={targetRows} mode={donutMode} />
@@ -591,26 +589,18 @@ export function TargetsPage({
 
         {targetRows.length > 0 && (
           <div className="drift-controls">
-            <div className="chip-group">
-              {(["all", "over", "under", "ontrack", "due"] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className={`chip ${targetStatusFilter === s ? "chip--active" : ""}`}
-                  onClick={() => setTargetStatusFilter(s)}
-                >
-                  {s === "all"
-                    ? "All"
-                    : s === "over"
-                      ? "Over"
-                      : s === "under"
-                        ? "Under"
-                        : s === "ontrack"
-                          ? "On track"
-                          : "Due"}
-                </button>
-              ))}
-            </div>
+            <ChipGroup
+              ariaLabel="Drift status filter"
+              value={targetStatusFilter}
+              onChange={setTargetStatusFilter}
+              options={[
+                { value: "all", label: "All" },
+                { value: "over", label: "Over" },
+                { value: "under", label: "Under" },
+                { value: "ontrack", label: "On track" },
+                { value: "due", label: "Due" },
+              ]}
+            />
             {targetRows.length > 3 && (
               <input
                 className="target-filter"

@@ -120,4 +120,69 @@ export const METRIC_INFO = {
     reading:
       "Cash minus this is what you can actually deploy. It falls on its own when later losses net off the gains, so it is an estimate until NCCPL settles.",
   },
+  netTotalPnl: {
+    what: "Everything the portfolio has made since you started: realized profit from sales, unrealized profit on what you still hold, and dividends received. Brokerage, CGT and withholding are already deducted inside those three figures.",
+    reading:
+      "The single honest scorecard. Unlike Unrealized P/L it doesn't forget the trades you've already closed, and unlike True return it's a rupee amount rather than a rate. Lifetime — the date range at the top doesn't narrow it.",
+  },
+  realizedPnl: {
+    what: "Profit and loss you have actually banked by selling, net of the brokerage and capital gains tax attributed to each sale.",
+    reading:
+      "Money that is genuinely yours — it can't swing back. Compare it against Unrealized to see how much of your record is settled versus still on paper.",
+  },
+  dividendsReceived: {
+    what: "Cash dividends received across all holdings, after the withholding tax deducted at source.",
+    reading:
+      "Return that arrives whatever the price does, which makes it the steadiest part of the total. Growing dividends on an unchanged position count as real progress.",
+  },
+  feesPaidTotal: {
+    what: "Brokerage commission and statutory charges paid across every trade you have recorded.",
+    reading:
+      "Pure friction — the only line here you can shrink by acting less. Judge it against the fee-drag percentage rather than the rupee amount, which just grows with activity.",
+  },
+  taxesBooked: {
+    what: "Capital gains tax, dividend withholding and bonus-issue tax booked to date. Booked, not paid: withholding has already left your hands, but accrued CGT has not — NCCPL debits that later.",
+    reading:
+      "Read it next to the CGT reserve, which is the part still sitting in your cash balance awaiting collection. Treating the whole figure as money already gone will understate what you can deploy.",
+  },
+  winRate: {
+    what: "Share of your closed sales that made a profit. A part-sale of one lot counts once.",
+    reading:
+      "Above 50% means most exits worked out, but it says nothing about size — a 30% win rate with large winners beats a 90% win rate with one ruinous loss. Read it beside best and worst trade.",
+  },
+  dayPnl: {
+    what: "Change in the market value of your positions since the previous close, at the last fetched prices.",
+    reading:
+      "Noise on any single day. Useful as a sanity check that prices actually refreshed, not as a measure of whether the strategy is working.",
+  },
+  netIfSoldToday: {
+    what: "What your unrealized gain would be worth after paying the brokerage and capital gains tax to liquidate every position right now.",
+    reading:
+      "The unrealized figure you'd actually keep. The gap between the two is the cost of the exit — normally small, but wide on short-held positions where the full CGT rate applies.",
+  },
+  deployableCash: {
+    what: "Cash balance minus the CGT reserve — what you can commit to a new position without spending tax you owe.",
+    reading:
+      "The number to size a buy against. Using the raw cash balance instead means funding trades with money earmarked for the next NCCPL debit.",
+  },
+  top3Concentration: {
+    what: "Combined weight of your three largest positions.",
+    reading:
+      "Under about 40% is diversified, 40-60% is concentrated, above 60% means three names decide your outcome. Fine if deliberate; check it is.",
+  },
+  feeDragPortfolio: {
+    what: "Brokerage, statutory charges and taxes across the whole portfolio, as a share of the lifetime cash you have put in.",
+    reading:
+      "Under 1% is normal for buy-and-hold. Several percent means frequent trading or small tickets are quietly eating the return.",
+  },
+  netDeposits: {
+    what: "Net capital you have contributed, from the Invest tab ledger — deposits minus withdrawals.",
+    reading:
+      "Your cost of entry, and not the same thing as Open position cost: this is money in, that is what today's holdings cost. Value above this line means you're ahead overall.",
+  },
+  openPositionCost: {
+    what: "What the positions you hold right now cost you — shares × cost basis, brokerage included.",
+    reading:
+      "The break-even line for today's holdings only. It says nothing about positions you already sold; Realized P&L covers those.",
+  },
 } satisfies Record<string, MetricInfo>;

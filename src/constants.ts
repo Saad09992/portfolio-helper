@@ -30,6 +30,12 @@ export const UI_LIMITS = {
   TOP_MOVERS: 6,
   TREEMAP_TOP_N: 12,
   WATERFALL_TOP_N: 10,
+  /**
+   * Delay before a search box mirrors itself into the URL. Long enough that
+   * typing a word is one history write, not one per keystroke — Safari throttles
+   * `replaceState` to roughly 100 calls per 30 seconds.
+   */
+  SEARCH_URL_DEBOUNCE_MS: 300,
 } as const;
 
 export const PERSISTENCE = {
@@ -54,6 +60,12 @@ export const CADENCE_DAYS: Record<RebalanceCadence, number> = {
 };
 
 export const ANALYTICS = {
+  /**
+   * Snapshots required before an annualized figure (CAGR, and therefore Sharpe)
+   * is worth showing. Below roughly a quarter of data, annualizing a few days of
+   * returns produces numbers in the thousands.
+   */
+  MIN_ANNUALIZE_SNAPSHOTS: 60,
   /** Annual risk-free rate for Sharpe (≈ PSX T-bill yield). Tweak as rates move. */
   RISK_FREE_ANNUAL: 0.11,
   /** Calendar days per year — snapshots are daily (incl. weekends), so

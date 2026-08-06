@@ -3783,3 +3783,475 @@ input::placeholder {
   color: var(--danger, #ff6b6b);
   font-size: 0.85rem;
 }
+
+/* ---------------------------------------------------------------------------
+   Hash routing. Anything that navigates is a real <a href="#/…"> so cmd-click,
+   middle-click and the status-bar preview all work. Anchors don't inherit the
+   button box these classes were written against, so restore it here.
+
+   NOTE: this file has two layers — the original sheet, then a "terminal revamp"
+   block from line ~2701 that re-declares .page-nav, .chip, .empty-state and
+   .kpi-tile. New rules must live at the end, after both, or they lose.
+   --------------------------------------------------------------------------- */
+
+.page-nav-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.page-nav-tab:focus-visible,
+.chip:focus-visible,
+.ticker-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Chips are anchors on the Tax page and buttons elsewhere — normalize. */
+.chip-group a.chip {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Ticker cross-links: readable as text, obviously clickable on hover. */
+.ticker-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--panel-border-strong);
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.ticker-link:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* The Stocks table row matching the current #/stocks/<TICKER>. */
+.stock-row[aria-current="true"] {
+  background: var(--accent-dim);
+}
+
+a.stock-row-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------------------
+   Overview information architecture. Seven numbered bands, each answering one
+   question, replacing what used to be a flat stack of panels.
+   --------------------------------------------------------------------------- */
+
+.overview-band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.band-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.band-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.band-label-index {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  opacity: 0.75;
+}
+
+.band-label-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.section-lede {
+  font-size: 0.82rem;
+  color: var(--muted-2);
+}
+
+/* Four headline cards. Mirrors .kpi-six, and must collapse at the same widths —
+   see the responsive block below. */
+.stats-grid.kpi-four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.range-bar {
+  flex: 0 0 auto;
+}
+
+/* ---- Ledger truth panel ---- */
+
+.ledger-truth {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+/*
+ * The reconciliation strip: realized + unrealized + dividends = net.
+ * Fees and taxes are deliberately absent as terms — they are already deducted
+ * inside the three components, so showing them here would read as a further
+ * subtraction. They appear in .recon-note instead.
+ */
+.recon-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  padding: var(--s3);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+}
+
+.recon-term {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+.recon-term > span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-2);
+}
+
+.recon-term > strong {
+  font-size: 1.05rem;
+}
+
+.recon-term--total {
+  padding-left: var(--s3);
+  border-left: 1px solid var(--panel-border-strong);
+}
+
+.recon-term--total > strong {
+  font-size: 1.25rem;
+}
+
+.recon-op {
+  display: flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  color: var(--muted-2);
+  padding-top: 0.9rem;
+}
+
+.recon-note {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* KPI tiles that navigate. Keep them visually identical to static tiles — the
+   affordance is hover/focus, so the grid doesn't look striped. */
+.kpi-tile-link {
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.kpi-tile-link:hover {
+  border-color: rgba(0, 230, 118, 0.35);
+  background: var(--panel-3);
+}
+
+.kpi-tile-link:focus-visible,
+.contributor:focus-visible,
+.suggestion-row--link:focus-visible,
+.waterfall-row--link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.contributor-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s3);
+}
+
+.contributor {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  padding: var(--s2) var(--s3);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: inherit;
+}
+
+.contributor:hover {
+  border-color: rgba(0, 230, 118, 0.35);
+}
+
+.contributor > span:first-child {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-2);
+}
+
+/* ---- Clickable list rows ---- */
+
+.suggestion-row--link,
+.waterfall-row--link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.suggestion-row--link:hover,
+.waterfall-row--link:hover {
+  background: var(--panel-3);
+}
+
+.panel-meta--inline {
+  display: block;
+  margin: 0 0 var(--s2);
+}
+
+.growth-footnotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s4);
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--panel-border);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* ---- Clickable charts and allocation rows ---- */
+
+.chart-clickable {
+  cursor: pointer;
+}
+
+.legend-row--link,
+.ranked-row--link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.legend-row--link:hover,
+.ranked-row--link:hover {
+  background: var(--panel-3);
+}
+
+.legend-row--link:focus-visible,
+.ranked-row--link:focus-visible,
+.stock-row-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Command palette (Cmd/Ctrl-K). Structured as a combobox: focus stays in the
+   input and Arrow keys move aria-activedescendant, so typing and choosing never
+   requires leaving the field.
+   --------------------------------------------------------------------------- */
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh var(--s4) var(--s4);
+  background: rgba(2, 4, 8, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.palette-card {
+  width: min(34rem, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+.palette-input {
+  padding: var(--s4);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--panel-border);
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.palette-input:focus {
+  outline: none;
+}
+
+.palette-list {
+  max-height: min(24rem, 50vh);
+  overflow-y: auto;
+  padding: var(--s2) 0;
+}
+
+.palette-group {
+  margin: var(--s2) 0 var(--s1);
+  padding: 0 var(--s4);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted-2);
+}
+
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s2) var(--s4);
+  text-decoration: none;
+  color: var(--text);
+  border-left: 2px solid transparent;
+}
+
+.palette-row > span {
+  font-size: 0.8rem;
+  color: var(--muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Highlight follows aria-activedescendant, not :hover or :focus — the input keeps
+   focus the whole time. */
+.palette-row--active {
+  background: var(--accent-dim);
+  border-left-color: var(--accent);
+}
+
+.palette-empty,
+.palette-footnote {
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  font-size: 0.8rem;
+  color: var(--muted-2);
+}
+
+.palette-footnote {
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  gap: var(--s1);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 1px 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+
+/* Palette discoverability hint, sitting at the end of the nav row. */
+.palette-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-left: auto;
+  padding: 0 var(--s3);
+  background: transparent;
+  border: none;
+  color: var(--muted-2);
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.palette-hint:hover {
+  color: var(--text);
+}
+
+.palette-hint:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .palette-hint {
+    display: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .stats-grid.kpi-four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .stats-grid.kpi-four,
+  .contributor-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .band-header {
+    align-items: flex-start;
+  }
+
+  /* Stack the reconciliation vertically and hide the operators — a wrapped
+     "+" between rows reads as noise rather than arithmetic. */
+  .recon-row {
+    flex-direction: column;
+  }
+
+  .recon-op {
+    display: none;
+  }
+
+  .recon-term--total {
+    padding-left: 0;
+    padding-top: var(--s2);
+    border-left: none;
+    border-top: 1px solid var(--panel-border-strong);
+  }
+}

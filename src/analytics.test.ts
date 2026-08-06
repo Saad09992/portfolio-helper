@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { computeRiskMetrics, computeSavingsStats } from "./analytics";
+import {
+  computeRiskMetrics,
+  computeSavingsStats,
+  isRangeKey,
+  sliceSnapshots,
+} from "./analytics";
 import type { InvestmentRow } from "./derivedTypes";
 import type { PortfolioSnapshot } from "./utils";
 
@@ -196,5 +201,93 @@ describe("computeBenchmarkStats", () => {
       snapK("2026-01-04", 1030, 1000, 1030),
     ];
     expect(computeBenchmarkStats(snaps).beta).toBeCloseTo(1, 2);
+  });
+});
+
+describe("sliceSnapshots", () => {
+  const snaps = [
+    snap("2026-08-06", 130, 100),
+    snap("2025-12-31", 90, 100), // previous calendar year
+    snap("2026-01-01", 100, 100),
+    snap("2026-05-06", 110, 100),
+    snap("2026-07-06", 120, 100),
+  ];
+  const now = new Date("2026-08-06T00:00:00Z");
+
+  it("sorts oldest-first and returns everything for 'all'", () => {
+    expect(sliceSnapshots(snaps, "all", now).map((s) => s.date)).toEqual([
+      "2025-12-31",
+      "2026-01-01",
+      "2026-05-06",
+      "2026-07-06",
+      "2026-08-06",
+    ]);
+  });
+
+  it("includes the cutoff date itself", () => {
+    // 1M back from 2026-08-06 is 2026-07-06, which must be kept.
+    expect(sliceSnapshots(snaps, "1m", now).map((s) => s.date)).toEqual([
+      "2026-07-06",
+      "2026-08-06",
+    ]);
+  });
+
+  it("windows 3M", () => {
+    expect(sliceSnapshots(snaps, "3m", now).map((s) => s.date)).toEqual([
+      "2026-05-06",
+      "2026-07-06",
+      "2026-08-06",
+    ]);
+  });
+
+  it("YTD starts at 1 January and excludes December", () => {
+    expect(sliceSnapshots(snaps, "ytd", now).map((s) => s.date)).toEqual([
+      "2026-01-01",
+      "2026-05-06",
+      "2026-07-06",
+      "2026-08-06",
+    ]);
+  });
+
+  it("YTD on 1 January keeps that day and drops the year before", () => {
+    // There is no upper bound — the window is "since the cutoff" — so this only
+    // pins the boundary itself.
+    const jan1 = new Date("2026-01-01T00:00:00Z");
+    const dates = sliceSnapshots(snaps, "ytd", jan1).map((s) => s.date);
+    expect(dates).toContain("2026-01-01");
+    expect(dates).not.toContain("2025-12-31");
+  });
+
+  it("windows 1Y across the year boundary", () => {
+    expect(sliceSnapshots(snaps, "1y", now).map((s) => s.date)).toEqual([
+      "2025-12-31",
+      "2026-01-01",
+      "2026-05-06",
+      "2026-07-06",
+      "2026-08-06",
+    ]);
+  });
+
+  it("handles an empty input", () => {
+    expect(sliceSnapshots([], "1m", now)).toEqual([]);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = snaps.slice();
+    sliceSnapshots(input, "all", now);
+    expect(input[0].date).toBe("2026-08-06");
+  });
+
+  it("leaves risk metrics unready when a window is too short", () => {
+    // Two snapshots yield one daily return; computeRiskMetrics needs 2+.
+    const short = sliceSnapshots(snaps, "1m", now);
+    expect(short).toHaveLength(2);
+    expect(computeRiskMetrics(short, RF, TD).ready).toBe(false);
+  });
+
+  it("validates range keys", () => {
+    expect(isRangeKey("ytd")).toBe(true);
+    expect(isRangeKey("7d")).toBe(false);
+    expect(isRangeKey(undefined)).toBe(false);
   });
 });

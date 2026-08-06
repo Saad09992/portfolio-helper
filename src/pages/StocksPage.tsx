@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { LedgerState, Transaction } from "../ledger/types";
 import type { StockLedgerRow } from "../ledger/perStock";
 import { METRIC_INFO } from "../metricInfo";
+import { pageHref, stockHref } from "../routes";
 import { InfoTip } from "../components/ui/InfoTip";
 import {
   formatCompactCurrency,
@@ -14,6 +15,12 @@ export type StocksPageProps = {
   stockRows: StockLedgerRow[];
   state: LedgerState;
   transactions: Transaction[];
+  /**
+   * Selected ticker. Optional so the page still works uncontrolled — omit both
+   * props and selection stays local, which is what the smoke tests rely on.
+   */
+  selected?: string | null;
+  onSelect?: (ticker: string | null) => void;
 };
 
 const signed = (paisa: number) =>
@@ -21,10 +28,22 @@ const signed = (paisa: number) =>
 
 const tone = (value: number) => (value >= 0 ? "positive" : "negative");
 
-export function StocksPage({ stockRows, state, transactions }: StocksPageProps) {
-  const [selected, setSelected] = useState<string | null>(null);
+export function StocksPage({
+  stockRows,
+  state,
+  transactions,
+  selected: selectedProp,
+  onSelect,
+}: StocksPageProps) {
+  const [localSelected, setLocalSelected] = useState<string | null>(null);
+  const selected = selectedProp !== undefined ? selectedProp : localSelected;
+  const select = onSelect ?? setLocalSelected;
 
-  const active = stockRows.find((row) => row.ticker === selected) ?? null;
+  const active =
+    stockRows.find((row) => row.ticker === (selected ?? "").toUpperCase()) ?? null;
+  // A deep link can name a ticker with no ledger history — say so rather than
+  // silently rendering the plain list.
+  const missing = selected && !active ? selected.toUpperCase() : null;
 
   if (stockRows.length === 0) {
     return (
@@ -50,8 +69,14 @@ export function StocksPage({ stockRows, state, transactions }: StocksPageProps) 
           row={active}
           state={state}
           transactions={transactions}
-          onClose={() => setSelected(null)}
+          onClose={() => select(null)}
         />
+      ) : null}
+
+      {missing ? (
+        <p className="empty-state">
+          No ledger history for {missing}. Pick a stock from the table below.
+        </p>
       ) : null}
 
       <section className="panel table-panel">
@@ -85,12 +110,14 @@ export function StocksPage({ stockRows, state, transactions }: StocksPageProps) 
                 <tr
                   key={row.ticker}
                   className="stock-row"
-                  onClick={() => setSelected(row.ticker === selected ? null : row.ticker)}
+                  aria-current={row.ticker === active?.ticker ? "true" : undefined}
                 >
                   <td>
-                    <button type="button" className="stock-row-link">
+                    {/* An anchor, not a click handler on the <tr>: the row used to
+                        wrap a nested <button>, so a click fired both. */}
+                    <a className="stock-row-link ticker-link" href={stockHref(row.ticker)}>
                       {row.ticker}
-                    </button>
+                    </a>
                     {row.isClosed ? <span className="txn-tag">closed</span> : null}
                   </td>
                   <td className="right num">{row.shares.toLocaleString()}</td>
@@ -152,9 +179,17 @@ function StockDetail({
             {row.ticker} — {row.name}
           </h2>
         </div>
-        <button type="button" className="button button-sm" onClick={onClose}>
-          Close
-        </button>
+        <div className="detail-actions">
+          <a className="button button-sm" href={pageHref("ledger")}>
+            View in Ledger
+          </a>
+          <a className="button button-sm" href={pageHref("tax")}>
+            Tax years
+          </a>
+          <button type="button" className="button button-sm" onClick={onClose}>
+            Close
+          </button>
+        </div>
       </div>
 
       <div className="kpi-grid">

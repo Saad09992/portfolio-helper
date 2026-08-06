@@ -15,6 +15,7 @@ import {
   type PortfolioSnapshot,
 } from "../../utils";
 import { chartTokens } from "../../theme/chartTokens";
+import { ChipGroup } from "../ui/ChipGroup";
 
 type ViewMode = "value" | "twr";
 
@@ -207,18 +208,15 @@ export function PortfolioHistoryChart({
             <small className="history-updated">Updated {formatRelativeTime(lastFetchedIso)}</small>
           ) : null}
         </div>
-        <div className="chip-group">
-          {(["value", "twr"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={`chip ${viewMode === m ? "chip--active" : ""}`}
-              onClick={() => setViewMode(m)}
-            >
-              {m === "value" ? "Value" : "TWR vs KSE100"}
-            </button>
-          ))}
-        </div>
+        <ChipGroup
+          ariaLabel="History view"
+          value={viewMode}
+          onChange={setViewMode}
+          options={[
+            { value: "value", label: "Value" },
+            { value: "twr", label: "TWR vs KSE100" },
+          ]}
+        />
       </div>
       <div className="chart-legend">
         {(viewMode === "value"

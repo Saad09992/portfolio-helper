@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CashBuckets,
   Holding,
@@ -40,7 +40,13 @@ import {
   getCashDeploymentIdea,
   normalizeHolding,
 } from "./portfolio/holdings";
-import { computeSavingsStats, computeBenchmarkStats } from "./analytics";
+import {
+  computeSavingsStats,
+  computeBenchmarkStats,
+  isRangeKey,
+  sliceSnapshots,
+  type RangeKey,
+} from "./analytics";
 import {
   cashStorageKey,
   historyStorageKey,
@@ -59,12 +65,16 @@ import {
   type TargetPreset,
 } from "./portfolio/storage";
 import { useLedger } from "./hooks/useLedger";
+import { buildLedgerSummary } from "./ledger/summary";
+import { useHashRoute } from "./hooks/useHashRoute";
+import { PAGES, PAGE_LABELS, pageHref } from "./routes";
 import type { Transaction } from "./ledger/types";
 import {
   affectsLaterSales,
   describeTransactionWithDate,
 } from "./ledger/describe";
 import { CopySummaryButton } from "./components/CopySummaryButton";
+import { CommandPalette } from "./components/CommandPalette";
 import type { PortfolioSummaryInput } from "./portfolio/summary";
 import type { HoldingsSortKey, SortDir } from "./uiTypes";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -140,28 +150,47 @@ function App() {
   const [targetFilter, setTargetFilter] = useState("");
   const [targetStatusFilter, setTargetStatusFilter] = useState<"all" | "over" | "under" | "ontrack" | "due">("all");
   const [targetPresets, setTargetPresets] = useState<TargetPreset[]>(() => loadTargetPresets());
-  const [treemapMode, setTreemapMode] = useState<"sector" | "ticker">("sector");
-  const [allocationView, setAllocationView] = useState<"map" | "ranked">("map");
-  const [page, setPage] = useState<
-    | "overview"
-    | "holdings"
-    | "ledger"
-    | "stocks"
-    | "targets"
-    | "tax"
-    | "income"
-    | "invest"
-    | "settings"
-  >("overview");
+  // Navigation and view state live in the location hash — see `src/routes.ts`.
+  // Toggles are derived from `route.query` but keep the same prop signatures the
+  // pages already expect, so nothing downstream changes shape.
+  const { route, navigate, setParam } = useHashRoute();
+  const page = route.page;
+
+  const treemapMode: "sector" | "ticker" =
+    route.query.tmap === "ticker" ? "ticker" : "sector";
+  const setTreemapMode = useCallback(
+    (mode: "sector" | "ticker") => setParam("tmap", mode === "sector" ? null : mode),
+    [setParam],
+  );
+  const allocationView: "map" | "ranked" =
+    route.query.alloc === "ranked" ? "ranked" : "map";
+  const setAllocationView = useCallback(
+    (view: "map" | "ranked") => setParam("alloc", view === "map" ? null : view),
+    [setParam],
+  );
+
+  // Default stays "all": windowing silently moving a headline number the user has
+  // memorized is worse than making them ask for a window.
+  const range: RangeKey = isRangeKey(route.query.range) ? route.query.range : "all";
+  const setRange = useCallback(
+    (next: RangeKey) => setParam("range", next === "all" ? null : next),
+    [setParam],
+  );
+
   const [investments, setInvestments] = useState<InvestmentEntry[]>(() => loadInvestments());
   const [investDraft, setInvestDraft] = useState<DraftInvestment>(emptyInvestmentDraft);
   const [investError, setInvestError] = useState("");
   const [history, setHistory] = useState<PortfolioSnapshot[]>(() => loadHistory());
-  const [holdingsSearch, setHoldingsSearch] = useState("");
-  const [holdingsSort, setHoldingsSort] = useState<{ key: HoldingsSortKey | null; dir: SortDir }>({
-    key: null,
-    dir: "desc",
-  });
+  // Holdings search stays local state so typing is instant, and is mirrored into
+  // `?q=` on a debounce. Sort is discrete, so it reads straight off the route.
+  const [holdingsSearch, setHoldingsSearch] = useState(() => route.query.q ?? "");
+  const holdingsSort = useMemo<{ key: HoldingsSortKey | null; dir: SortDir }>(
+    () => ({
+      key: (route.query.sort as HoldingsSortKey | undefined) ?? null,
+      dir: route.query.dir === "asc" ? "asc" : "desc",
+    }),
+    [route.query.sort, route.query.dir],
+  );
 
   const [fetching, setFetching] = useState(false);
   const [quoteSources, setQuoteSources] = useState<HoldingSources>({});
@@ -170,6 +199,7 @@ function App() {
   );
 
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [draftError, setDraftError] = useState("");
   const [cashError, setCashError] = useState("");
   const [targetError, setTargetError] = useState("");
@@ -182,6 +212,60 @@ function App() {
   const effectiveCash: CashBuckets = ledger.hasLedger
     ? { available: ledger.cash }
     : cashDraft;
+
+  // Cmd/Ctrl-K opens the jump-to palette. Registered once on the document so it
+  // works from anywhere, including while a chart has focus.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  /**
+   * Palette targets. Ledger stocks come first, then any stored holding the ledger
+   * has not seen — deduped, since most tickers appear in both.
+   */
+  const paletteTickers = useMemo(() => {
+    const seen = new Map<string, { ticker: string; name: string }>();
+    for (const row of ledger.stockRows) {
+      seen.set(row.ticker, { ticker: row.ticker, name: row.name });
+    }
+    for (const holding of holdings) {
+      const key = holding.ticker.toUpperCase();
+      if (!seen.has(key)) seen.set(key, { ticker: key, name: holding.name });
+    }
+    return [...seen.values()].sort((a, b) => a.ticker.localeCompare(b.ticker));
+  }, [ledger.stockRows, holdings]);
+
+  // Holdings search <-> `?q=`. `searchMirror` records the last value this side
+  // wrote, so an inbound route change can be told apart from our own echo and
+  // only genuinely external ones (back/forward, a pasted link) reset the input.
+  //
+  // It holds the TRIMMED text, because that is what gets written to the URL.
+  // Storing the raw value instead would make a trailing space look like an
+  // external change and echo the trimmed string back into the input — deleting
+  // the space the user just typed, so "oil " + "gas" came out "oilgas".
+  const searchMirror = useRef(holdingsSearch.trim());
+  useEffect(() => {
+    if (page !== "holdings") return;
+    const timer = window.setTimeout(() => {
+      searchMirror.current = holdingsSearch.trim();
+      setParam("q", searchMirror.current || null);
+    }, UI_LIMITS.SEARCH_URL_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [holdingsSearch, page, setParam]);
+
+  const routeSearch = route.query.q ?? "";
+  useEffect(() => {
+    if (routeSearch === searchMirror.current) return;
+    searchMirror.current = routeSearch;
+    setHoldingsSearch(routeSearch);
+  }, [routeSearch]);
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(holdings));
@@ -510,13 +594,37 @@ function App() {
     };
   }, [investmentRows]);
 
+  // Back out yesterday's close from today's value to get the rupee move:
+  // marketValue already includes the day's change, so divide by (100 + pct).
+  // Hoisted out of `summaryInput` so the dashboard can show it — it used to be
+  // computed only for the copy-summary markdown.
+  const dayPnL = useMemo(
+    () =>
+      roundPaisa(
+        nonCashPortfolio.reduce((s, h) => {
+          const denom = 100 + h.dayChangePct;
+          return denom === 0 ? s : s + (h.marketValue * h.dayChangePct) / denom;
+        }, 0),
+      ),
+    [nonCashPortfolio],
+  );
+
+  const ledgerSummary = useMemo(
+    () => buildLedgerSummary(ledger.stockRows),
+    [ledger.stockRows],
+  );
+
+  /** Combined weight of the three largest positions — concentration at a glance. */
+  const top3Weight = useMemo(
+    () =>
+      [...nonCashPortfolio]
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 3)
+        .reduce((sum, h) => sum + h.weight, 0),
+    [nonCashPortfolio],
+  );
+
   const summaryInput: PortfolioSummaryInput = useMemo(() => {
-    const dayPnL = roundPaisa(
-      nonCashPortfolio.reduce((s, h) => {
-        const denom = 100 + h.dayChangePct;
-        return denom === 0 ? s : s + (h.marketValue * h.dayChangePct) / denom;
-      }, 0),
-    );
     const twrIdx = computeTwrIndex(history);
     const twrLatest = twrIdx.length >= 2 ? twrIdx[twrIdx.length - 1] : null;
 
@@ -632,11 +740,17 @@ function App() {
   }, [portfolio.holdings, holdingsSearch, holdingsSort]);
 
   function toggleSort(key: HoldingsSortKey) {
-    setHoldingsSort((cur) => {
-      if (cur.key !== key) return { key, dir: "desc" };
-      if (cur.dir === "desc") return { key, dir: "asc" };
-      return { key: null, dir: "desc" };
-    });
+    // desc -> asc -> unsorted, same cycle as before; now expressed in the URL.
+    if (holdingsSort.key !== key) {
+      setParam("dir", null);
+      setParam("sort", key);
+    } else if (holdingsSort.dir === "desc") {
+      setParam("sort", key);
+      setParam("dir", "asc");
+    } else {
+      setParam("sort", null);
+      setParam("dir", null);
+    }
   }
 
   const treemapItems = useMemo(() => {
@@ -671,7 +785,23 @@ function App() {
     });
   }, [investmentRows]);
 
-  const benchmarkStats = useMemo(() => computeBenchmarkStats(history), [history]);
+  // Everything derived from snapshots reads `windowedHistory`, so the range chips
+  // rescope drawdown, volatility, Sharpe, alpha, beta and the history chart in one
+  // move. The TWR index rebases to 100 at the start of the slice — that is the
+  // correct meaning of "return over this window", not a bug.
+  //
+  // Ledger figures (realized, dividends, fees, taxes) stay lifetime: StockLedgerRow
+  // carries no dates to filter on, so they are labelled lifetime in the UI instead
+  // of being silently windowed.
+  const windowedHistory = useMemo(
+    () => sliceSnapshots(history, range),
+    [history, range],
+  );
+
+  const benchmarkStats = useMemo(
+    () => computeBenchmarkStats(windowedHistory),
+    [windowedHistory],
+  );
 
   const heatmapItems = useMemo(
     () =>
@@ -699,11 +829,22 @@ function App() {
     .slice(0, UI_LIMITS.TOP_MOVERS);
 
   const riskMetrics = useMemo(
-    () => computeRiskMetrics(history, ANALYTICS.RISK_FREE_ANNUAL, ANALYTICS.TRADING_DAYS),
-    [history],
+    () =>
+      computeRiskMetrics(
+        windowedHistory,
+        ANALYTICS.RISK_FREE_ANNUAL,
+        ANALYTICS.TRADING_DAYS,
+      ),
+    [windowedHistory],
   );
-  const valueSeries = useMemo(() => history.map((s) => s.totalValue), [history]);
-  const pnlSeries = useMemo(() => history.map((s) => s.gainLoss), [history]);
+  const valueSeries = useMemo(
+    () => windowedHistory.map((s) => s.totalValue),
+    [windowedHistory],
+  );
+  const pnlSeries = useMemo(
+    () => windowedHistory.map((s) => s.gainLoss),
+    [windowedHistory],
+  );
 
   function addManualHolding(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1256,27 +1397,29 @@ function App() {
         </div>
       </section>
 
-      <nav className="page-nav">
-        {([
-          ["overview", "Overview"],
-          ["holdings", "Holdings"],
-          ["ledger", "Ledger"],
-          ["stocks", "Stocks"],
-          ["targets", "Targets"],
-          ["tax", "Tax"],
-          ["income", "Income"],
-          ["invest", "Invest"],
-          ["settings", "Settings"],
-        ] as const).map(([key, label]) => (
-          <button
+      {/* Real anchors, not buttons: cmd/middle-click opens a tab, the target is
+          visible in the status bar, and `href="#/…"` fires `hashchange` on its
+          own so no click handler is needed. */}
+      <nav className="page-nav" aria-label="Sections">
+        {PAGES.map((key) => (
+          <a
             key={key}
-            type="button"
             className={`page-nav-tab ${page === key ? "page-nav-tab--active" : ""}`}
-            onClick={() => setPage(key)}
+            href={pageHref(key)}
+            aria-current={page === key ? "page" : undefined}
           >
-            {label}
-          </button>
+            {PAGE_LABELS[key]}
+          </a>
         ))}
+        {/* Without this the keybinding is invisible. */}
+        <button
+          type="button"
+          className="palette-hint"
+          onClick={() => setPaletteOpen(true)}
+          aria-label="Open the jump-to palette"
+        >
+          Jump to <kbd>⌘K</kbd>
+        </button>
       </nav>
 
       {page === "overview" && (
@@ -1291,7 +1434,10 @@ function App() {
           investmentSummary={investmentSummary}
           savingsStats={savingsStats}
           contributionSeries={contributionSeries}
-          history={history}
+          history={windowedHistory}
+          totalSnapshotCount={history.length}
+          range={range}
+          onRangeChange={setRange}
           lastFetchedAt={lastFetchedAt}
           fetching={fetching}
           treemapMode={treemapMode}
@@ -1307,6 +1453,12 @@ function App() {
           pnlSeries={pnlSeries}
           benchmarkStats={benchmarkStats}
           heatmapItems={heatmapItems}
+          ledgerSummary={ledgerSummary}
+          hasLedger={ledger.hasLedger}
+          cgtReserve={ledger.cgtReserve}
+          ledgerCash={effectiveCash.available}
+          dayPnL={dayPnL}
+          top3Weight={top3Weight}
         />
       )}
 
@@ -1327,7 +1479,6 @@ function App() {
           quoteSources={quoteSources}
           ledgerActive={ledger.hasLedger}
           stockRows={ledger.stockRows}
-          onOpenLedger={() => setPage("ledger")}
         />
       )}
 
@@ -1353,10 +1504,14 @@ function App() {
           stockRows={ledger.stockRows}
           state={ledger.state}
           transactions={ledger.transactions}
+          selected={route.entity}
+          onSelect={(ticker) => navigate({ page: "stocks", entity: ticker })}
         />
       )}
 
-      {page === "tax" && <TaxPage taxYears={ledger.taxYears} />}
+      {page === "tax" && (
+        <TaxPage taxYears={ledger.taxYears} selectedFy={route.entity} />
+      )}
 
       {page === "settings" && (
         <SettingsPage
@@ -1438,6 +1593,13 @@ function App() {
         />
       )}
       {confirmDialog}
+      {paletteOpen ? (
+        <CommandPalette
+          tickers={paletteTickers}
+          fiscalYears={ledger.taxYears.map((year) => year.fy)}
+          onClose={() => setPaletteOpen(false)}
+        />
+      ) : null}
     </main>
   );
 }

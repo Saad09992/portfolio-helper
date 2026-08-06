@@ -4,13 +4,19 @@ import { EChart } from "./EChart";
 import { chartTokens } from "../../theme/chartTokens";
 import { getSliceColor } from "./palette";
 import { formatCurrency, formatPercent } from "../../utils";
+import { stockHref } from "../../routes";
 
 export function AllocationDonut({
   holdings,
+  onSelectTicker,
 }: {
   holdings: { ticker: string; marketValue: number; weight: number }[];
+  onSelectTicker?: (ticker: string) => void;
 }) {
   const chartRef = useRef<ECharts | null>(null);
+  // See Heatmap: `onInit` fires once, so the callback is read through a ref.
+  const cbRef = useRef(onSelectTicker);
+  cbRef.current = onSelectTicker;
 
   // One ordering for both the donut and the legend so a legend row's index is
   // the slice's dataIndex.
@@ -79,28 +85,49 @@ export function AllocationDonut({
       <EChart
         option={option}
         height={300}
+        className={onSelectTicker ? "chart-clickable" : undefined}
         onInit={(chart) => {
           chartRef.current = chart;
+          chart.on("click", (params: { name?: string }) => {
+            if (params.name) cbRef.current?.(params.name);
+          });
         }}
       />
+      {/* The canvas can't be focused, so these legend rows are the keyboard path
+          into each slice — real anchors when a target exists, so Enter works and
+          the destination shows in the status bar. */}
       <div className="pie-legend">
-        {sorted.slice(0, 8).map((h, i) => (
-          <div
-            key={h.ticker}
-            className="legend-row"
-            onMouseEnter={() => highlight(i)}
-            onMouseLeave={() => downplay(i)}
-            onFocus={() => highlight(i)}
-            onBlur={() => downplay(i)}
-            tabIndex={0}
-          >
-            <span className="legend-swatch" style={{ background: getSliceColor(i) }} />
-            <div>
-              <strong>{h.ticker}</strong>
-              <span className="num">{formatPercent(h.weight)}</span>
+        {sorted.slice(0, 8).map((h, i) => {
+          const inner = (
+            <>
+              <span className="legend-swatch" style={{ background: getSliceColor(i) }} />
+              <div>
+                <strong>{h.ticker}</strong>
+                <span className="num">{formatPercent(h.weight)}</span>
+              </div>
+            </>
+          );
+          const hover = {
+            onMouseEnter: () => highlight(i),
+            onMouseLeave: () => downplay(i),
+            onFocus: () => highlight(i),
+            onBlur: () => downplay(i),
+          };
+          return onSelectTicker ? (
+            <a
+              key={h.ticker}
+              className="legend-row legend-row--link"
+              href={stockHref(h.ticker)}
+              {...hover}
+            >
+              {inner}
+            </a>
+          ) : (
+            <div key={h.ticker} className="legend-row" tabIndex={0} {...hover}>
+              {inner}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

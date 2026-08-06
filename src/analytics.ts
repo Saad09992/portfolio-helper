@@ -1,6 +1,71 @@
 import { computeTwrIndex, type PortfolioSnapshot } from "./utils";
 import type { InvestmentRow } from "./derivedTypes";
 
+export type RangeKey = "1m" | "3m" | "ytd" | "1y" | "all";
+
+export const RANGE_KEYS: readonly RangeKey[] = ["1m", "3m", "ytd", "1y", "all"] as const;
+
+export const RANGE_LABELS: Record<RangeKey, string> = {
+  "1m": "1M",
+  "3m": "3M",
+  ytd: "YTD",
+  "1y": "1Y",
+  all: "ALL",
+};
+
+/** Prose for panel meta lines: "over the last 3 months". */
+export const RANGE_DESCRIPTIONS: Record<RangeKey, string> = {
+  "1m": "last month",
+  "3m": "last 3 months",
+  ytd: "year to date",
+  "1y": "last 12 months",
+  all: "all time",
+};
+
+export function isRangeKey(value: unknown): value is RangeKey {
+  return typeof value === "string" && (RANGE_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * Inclusive `YYYY-MM-DD` cutoff for a range, or null for "all".
+ *
+ * Deliberately string-based: snapshot dates are already day-stamped in Pakistan
+ * time by `pkDateOf`, so comparing date strings keeps the window aligned with how
+ * the data was bucketed. Rebuilding a Date here would reintroduce exactly the
+ * timezone drift `pkDateOf` exists to prevent.
+ */
+function rangeCutoff(range: RangeKey, now: Date): string | null {
+  if (range === "all") return null;
+
+  const y = now.getUTCFullYear();
+  if (range === "ytd") return `${y}-01-01`;
+
+  const d = new Date(
+    Date.UTC(y, now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0),
+  );
+  if (range === "1m") d.setUTCMonth(d.getUTCMonth() - 1);
+  else if (range === "3m") d.setUTCMonth(d.getUTCMonth() - 3);
+  else d.setUTCFullYear(d.getUTCFullYear() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Snapshots inside `range`, sorted oldest-first. Callers feed the result to
+ * `computeRiskMetrics`/`computeBenchmarkStats`, which rebase their indices to the
+ * first snapshot in the slice — that is the correct semantics for "return over
+ * this window", not a bug to be fixed.
+ */
+export function sliceSnapshots<T extends { date: string }>(
+  snapshots: T[],
+  range: RangeKey,
+  now: Date = new Date(),
+): T[] {
+  const sorted = snapshots.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const cutoff = rangeCutoff(range, now);
+  if (!cutoff) return sorted;
+  return sorted.filter((s) => s.date.slice(0, 10) >= cutoff);
+}
+
 export type RiskMetrics = {
   /** false when there are fewer than 2 daily returns — UI shows "—". */
   ready: boolean;

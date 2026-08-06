@@ -15,29 +15,8 @@ import { replayLedger } from "../ledger/replay";
 import { buildStockRows } from "../ledger/perStock";
 import { buildTaxYears } from "../ledger/tax";
 import { DEFAULT_FEE_CONFIG } from "../ledger/feeConfig";
-import type { Transaction, TxnType } from "../ledger/types";
 import type { Holding } from "../types";
-
-const txn = (
-  o: Partial<Transaction> & { id: string; date: string; type: TxnType },
-): Transaction => ({
-  ticker: "",
-  name: "",
-  sector: "",
-  shares: 0,
-  price: 0,
-  amount: 0,
-  note: "",
-  ...o,
-});
-
-const transactions: Transaction[] = [
-  txn({ id: "d1", date: "2025-01-01", type: "DEPOSIT", amount: 5_000_000 }),
-  txn({ id: "b1", date: "2025-01-10", type: "BUY", ticker: "LUCK", name: "Lucky Cement", sector: "Materials", shares: 100, price: 14500 }),
-  txn({ id: "s1", date: "2025-06-10", type: "SELL", ticker: "LUCK", shares: 30, price: 16000 }),
-  txn({ id: "v1", date: "2025-07-10", type: "DIVIDEND", ticker: "LUCK", price: 250 }),
-  txn({ id: "x1", date: "2025-08-10", type: "SELL", ticker: "LUCK", shares: 9999, price: 16000 }),
-];
+import { partiallySoldTransactions as transactions } from "../ledger/testFixtures";
 
 const state = replayLedger(transactions, DEFAULT_FEE_CONFIG);
 const stockRows = buildStockRows(
@@ -187,7 +166,6 @@ describe("HoldingsPage under the ledger", () => {
         quoteSources={{}}
         ledgerActive
         stockRows={stockRows}
-        onOpenLedger={noop}
       />,
     );
     expect(html).toContain("derived from your trade ledger");
@@ -224,7 +202,6 @@ describe("HoldingsPage under the ledger", () => {
         quoteSources={{}}
         ledgerActive={false}
         stockRows={[]}
-        onOpenLedger={noop}
       />,
     );
     expect(html).toContain("Manual holding");

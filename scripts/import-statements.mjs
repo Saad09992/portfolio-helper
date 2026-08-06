@@ -47,6 +47,11 @@ function isoFromShort(s) {
 /**
  * Stable synthetic id. Re-running the importer on the same statements must
  * produce the same ids, so a re-import doesn't duplicate or churn rows.
+ *
+ * The trade's own identity must be part of `parts`. Date, ticker, side, size
+ * and price are NOT unique between them: one order filled in several lots
+ * reports the same numbers on every line, and two such rows would collide into
+ * a single id and violate the primary key on insert.
  */
 function idFor(parts) {
   return createHash("sha1").update(parts.join("|")).digest("hex").slice(0, 16);
@@ -114,7 +119,9 @@ function parseIwtStatement(text) {
     // difference is what the broker took.
     const fees = side === "BUY" ? net - gross : gross - net;
 
-    trades.push({ symbol, flag, side, shares, price, net, fees });
+    // Position in the statement is this row's only distinguishing mark — the
+    // report carries no trade number, and repeated fills are otherwise equal.
+    trades.push({ symbol, flag, side, shares, price, net, fees, uid: `row${trades.length}` });
   }
   return trades;
 }
@@ -247,12 +254,12 @@ function parseFinqalab(text) {
     if (!m) continue;
     trades.push({
       symbol: m[1],
-      tradeNo: m[2],
       date: m[3],
       side: m[5],
       price: money(m[6]),
       shares: Number(m[7]),
       fees: money(m[10]) + money(m[11]),
+      uid: m[2], // the broker's own trade number
     });
   }
   return trades;
@@ -281,7 +288,7 @@ function orderForReplay(transactions) {
 function toTransaction(source, broker, securities) {
   const meta = securities.get(source.symbol.toUpperCase()) ?? { name: "", sector: "" };
   return {
-    id: idFor([broker, source.date, source.symbol, source.side, source.shares, source.price]),
+    id: idFor([broker, source.uid, source.date, source.symbol, source.side, source.shares, source.price]),
     date: source.date,
     type: source.side,
     ticker: source.symbol.toUpperCase(),
@@ -411,6 +418,24 @@ function main(argv) {
     }
   } else if (lossIdx >= 0) {
     onWarn("--opening-loss needs --config: a partial fee config would reset every other rate to its default");
+  }
+
+  // `id` is the primary key, so a collision is rejected by the database and the
+  // whole save is rolled back — after the import has already been applied in
+  // the browser. Catch it here, where the message can name the rows.
+  const seen = new Map();
+  const collisions = [];
+  for (const t of ordered) {
+    if (seen.has(t.id)) collisions.push([seen.get(t.id), t]);
+    else seen.set(t.id, t);
+  }
+  if (collisions.length) {
+    console.error(`\nABORT: ${collisions.length} duplicate transaction id(s) — nothing written.`);
+    for (const [a, b] of collisions.slice(0, 5)) {
+      console.error(`  ${a.date} ${a.ticker} ${a.type} ${a.shares} @ ${rupees(a.price)}`);
+      console.error(`  ${b.date} ${b.ticker} ${b.type} ${b.shares} @ ${rupees(b.price)}  <- same id ${b.id}`);
+    }
+    process.exit(1);
   }
 
   const bundle = { version: SCHEMA_VERSION, transactions: ordered };

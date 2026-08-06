@@ -1,12 +1,12 @@
-import Database from "better-sqlite3";
 import { z } from "zod";
-import { existsSync } from "fs";
-import { getPortfolioDb, loadBundle, saveBundle } from "./portfolio-db.mjs";
+import { loadBundle, saveBundle } from "./portfolio-db.mjs";
 import { fetchWithTimeout, withRetry } from "./scrape-util.mjs";
 import { fetchQuoteSarmaaya, fetchDividendSarmaaya } from "./sarmaaya.mjs";
 import { fetchKse100 } from "./psx-index.mjs";
 
-// Serialize saves so overlapping requests (and the cron job) apply in order.
+// Serialize saves so overlapping requests apply in order. On Workers this only
+// orders saves within a single isolate — the real atomicity guarantee comes from
+// the D1 batch inside saveBundle(), which is all-or-nothing regardless.
 let saveQueue = Promise.resolve();
 export function serializeSave(work) {
   const next = saveQueue.then(work, work);
@@ -65,6 +65,11 @@ export async function fetchQuote(ticker) {
 
 // Primary (dps, with timeout + 1 retry) → fallback (sarmaaya). Each result is
 // tagged with its `source` so the client can surface fallbacks.
+//
+// From Cloudflare egress the dps leg currently always fails (its dynamic
+// endpoints return 520 there), so sarmaaya serves in practice. dps is kept
+// first so the richer source resumes automatically if it recovers; each failed
+// attempt costs ~700ms and 2 of the 50-subrequest budget.
 export async function fetchQuoteResilient(ticker) {
   const primary = await withRetry(() => fetchQuote(ticker));
   if (primary) return primary;
@@ -87,12 +92,17 @@ const tickersSchema = z
   .transform((s) => s.split(",").map((t) => t.trim()).filter(Boolean))
   .refine((arr) => arr.length > 0, { message: "tickers param required" });
 
-// Register all /api routes on a Hono app. Methods are pinned (no more
-// prefix/method-agnostic startsWith matching), and inputs are Zod-validated.
-export function registerApiRoutes(app, { dbPath, portfolioDbPath }) {
-  app.get("/api/portfolio/load", (c) => {
+/**
+ * Register all /api routes on a Hono app.
+ *
+ * `getDb(c)` resolves the storage adapter from the request context — on Workers
+ * that wraps `env.DB`, in tests/dev it wraps better-sqlite3. `getStocks(c)`
+ * returns the reference stock list.
+ */
+export function registerApiRoutes(app, { getDb, getStocks }) {
+  app.get("/api/portfolio/load", async (c) => {
     try {
-      const bundle = loadBundle(getPortfolioDb(portfolioDbPath));
+      const bundle = await loadBundle(getDb(c));
       return c.json(bundle);
     } catch (err) {
       return c.json({ error: String(err) }, 500);
@@ -101,9 +111,10 @@ export function registerApiRoutes(app, { dbPath, portfolioDbPath }) {
 
   app.post("/api/portfolio/save", async (c) => {
     const body = await c.req.text();
+    const db = getDb(c);
     return serializeSave(async () => {
       try {
-        saveBundle(getPortfolioDb(portfolioDbPath), body);
+        await saveBundle(db, body);
         return c.json({ ok: true });
       } catch (err) {
         return c.json({ error: String(err) }, 400);
@@ -111,18 +122,10 @@ export function registerApiRoutes(app, { dbPath, portfolioDbPath }) {
     });
   });
 
-  app.get("/api/psx/stocks", (c) => {
-    if (!existsSync(dbPath)) {
-      return c.json({ error: "Run npm run fetch-stocks first" }, 404);
-    }
+  app.get("/api/psx/stocks", async (c) => {
     try {
-      const db = new Database(dbPath, { readonly: true });
-      const rows = db
-        .prepare(
-          "SELECT s.ticker, s.name, sec.name as sector FROM stocks s JOIN sectors sec ON s.sector = sec.code ORDER BY s.ticker",
-        )
-        .all();
-      db.close();
+      const rows = await getStocks(c);
+      if (!rows) return c.json({ error: "stock list unavailable" }, 404);
       return c.json(rows);
     } catch (err) {
       return c.json(

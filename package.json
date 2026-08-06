@@ -5,12 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -b && vite build",
     "preview": "vite preview",
     "start": "node server/index.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "fetch-stocks": "node scripts/fetch-stocks.mjs"
+    "fetch-stocks": "node scripts/fetch-stocks.mjs",
+    "export-stocks": "node scripts/export-stocks-json.mjs",
+    "export-to-d1": "node scripts/export-to-d1.mjs",
+    "cf:migrate": "wrangler d1 migrations apply psx-portfolio --remote",
+    "cf:deploy": "npm run build && wrangler deploy -c dist/psx_portfolio/wrangler.json",
+    "cf:tail": "wrangler tail psx-portfolio"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.8",
@@ -25,6 +31,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.51.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.3",
     "@types/react": "^19.1.0",
@@ -32,6 +39,7 @@
     "@vitejs/plugin-react": "^4.4.1",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.6",
+    "wrangler": "^4.119.0"
   }
 }

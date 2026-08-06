@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { quoteFreshness } from "./cron.mjs";
+import { allFromFallback, quoteFreshness } from "./cron.mjs";
 
 describe("quoteFreshness", () => {
   // 2026-06-10 15:30 PKT = 2026-06-10 10:30 UTC
@@ -63,5 +63,44 @@ describe("quoteFreshness", () => {
     );
     expect(r.stale).toHaveLength(1);
     expect(r.fresh).toHaveLength(0);
+  });
+});
+
+// Gates the relaxed freshness rule in runDailySync. If this ever returns true
+// while a primary-source quote is present, a genuinely stale snapshot could be
+// recorded; if it wrongly returns false during a dps outage, the cron skips
+// every night and history silently stops.
+describe("allFromFallback", () => {
+  it("is true when every quote came from a fallback source", () => {
+    expect(
+      allFromFallback([
+        { ticker: "PSO", source: "sarmaaya" },
+        { ticker: "SYS", source: "sarmaaya" },
+      ]),
+    ).toBe(true);
+  });
+
+  it("is false when any quote came from the primary source", () => {
+    expect(
+      allFromFallback([
+        { ticker: "PSO", source: "dps" },
+        { ticker: "SYS", source: "sarmaaya" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("is false for an all-primary set", () => {
+    expect(allFromFallback([{ ticker: "PSO", source: "dps" }])).toBe(false);
+  });
+
+  it("is false on an empty set — nothing to relax for", () => {
+    expect(allFromFallback([])).toBe(false);
+  });
+
+  it("is false when a source tag is missing, rather than assuming fallback", () => {
+    expect(allFromFallback([{ ticker: "PSO" }])).toBe(false);
+    expect(
+      allFromFallback([{ ticker: "PSO", source: "sarmaaya" }, { ticker: "SYS" }]),
+    ).toBe(false);
   });
 });

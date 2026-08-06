@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "psx-portfolio",
+  "main": "worker/index.mjs",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Built SPA. not_found_handling serves index.html for unknown paths so a
+  // deep-link refresh hits client-side routing instead of a 404.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "psx-portfolio",
+      "database_id": "a433a940-a595-40ae-90b2-c795549b1584",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // 23:59 PKT. PKT is UTC+5 with no DST, so this is a fixed offset year-round.
+  "triggers": {
+    "crons": ["59 18 * * *"]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+
+  // Secrets (PSX_API_TOKEN, and later SESSION_SECRET / APP_PASSWORD_HASH) are
+  // set with `wrangler secret put` — never committed here.
+}

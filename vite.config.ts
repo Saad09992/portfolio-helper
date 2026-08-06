@@ -1,38 +1,24 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
-import { getRequestListener } from "@hono/node-server";
-import { Hono } from "hono";
-import { registerApiRoutes } from "./server/api.mjs";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = resolve(__dirname, "data/psx-stocks.db");
-const PORTFOLIO_DB_PATH = resolve(__dirname, "data/portfolio.sqlite");
+import { cloudflare } from "@cloudflare/vite-plugin";
 
 // Set BASE_PATH=/psx/ (etc) when deploying behind a path-based reverse proxy.
-// Leave unset for root deploys or host-based routing.
+// Leave unset for root deploys or host-based routing (the Workers deploy).
 const BASE = process.env.BASE_PATH ?? "/";
 
 export default defineConfig({
   base: BASE,
   plugins: [
     react(),
-    {
-      name: "psx-market-api",
-      configureServer(server) {
-        const app = new Hono();
-        registerApiRoutes(app, {
-          dbPath: DB_PATH,
-          portfolioDbPath: PORTFOLIO_DB_PATH,
-        });
-        const listener = getRequestListener(app.fetch);
-        server.middlewares.use((req, res, next) => {
-          if (!req.url?.startsWith("/api/")) return next();
-          listener(req, res);
-        });
-      },
-    },
+    // Runs worker/index.mjs in workerd during `vite dev`, with a local D1 under
+    // .wrangler/state. Replaces the old hand-rolled middleware that mounted the
+    // Hono app in-process against better-sqlite3 — dev now exercises the same
+    // runtime, bindings and async D1 seam as production.
+    //
+    // Skipped under Vitest: the plugin defines a worker environment that
+    // rejects Vitest's Node externals, and the server tests deliberately run in
+    // Node against the better-sqlite3 adapter rather than in workerd.
+    ...(process.env.VITEST ? [] : [cloudflare()]),
   ],
   test: {
     // Vitest 4 dropped **/dist/** from its default excludes, so compiled test

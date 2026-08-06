@@ -1,12 +1,5 @@
-import {
-  fetchQuoteResilient,
-  serializeSave,
-} from "./api.mjs";
-import {
-  getPortfolioDb,
-  loadBundle as loadBundleDb,
-  saveBundle,
-} from "./portfolio-db.mjs";
+import { fetchQuoteResilient, serializeSave } from "./api.mjs";
+import { loadBundle as loadBundleDb, saveBundle } from "./portfolio-db.mjs";
 import { fetchKse100 } from "./psx-index.mjs";
 import {
   computeTotals,
@@ -17,11 +10,14 @@ import {
 } from "./portfolio-compute.mjs";
 
 // Daily snapshot fires at 23:59 PKT so it captures the full day and lands
-// before the PKT date rolls over to the next day.
+// before the PKT date rolls over to the next day. Scheduling is a Cloudflare
+// Cron Trigger ("59 18 * * *" UTC); this module only decides whether a firing
+// should actually snapshot.
 const SNAPSHOT_HOUR_PKT = 23;
 const SNAPSHOT_MIN_PKT = 59;
-const STALE_RETRY_MS = 5 * 60_000; // retry every 5 min when prices haven't settled
-const STALE_GIVE_UP_HOUR_PKT = 23; // stop retrying once we reach the 23:xx snapshot hour
+
+// Quote sources other than this are fallbacks. Used by the freshness rule below.
+const PRIMARY_SOURCE = "dps";
 
 // True once the current PKT wall-clock time is at/after the 23:59 snapshot mark.
 function afterSnapshotTime(parts) {
@@ -47,6 +43,23 @@ export function quoteFreshness(quotes, closeMs) {
   return { fresh, stale };
 }
 
+/**
+ * True when every quote came from a fallback source rather than the primary.
+ *
+ * Matters because the strict close-time gate assumes a per-stock trade
+ * timestamp, which is what dps reports. The sarmaaya fallback instead reports
+ * one shared data-refresh timestamp across all symbols — observed identical to
+ * the millisecond for different tickers. If that stamp lags the 15:30 PKT
+ * close, a strict gate would classify every quote stale and skip the snapshot
+ * every single night, showing up only as silently missing history.
+ */
+export function allFromFallback(quotes) {
+  return (
+    quotes.length > 0 &&
+    quotes.every((q) => q && q.source && q.source !== PRIMARY_SOURCE)
+  );
+}
+
 function defaultLog(...args) {
   console.log("[psx:cron]", ...args);
 }
@@ -55,47 +68,8 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
-// ms from `now` until the next 23:59 PKT. Walks day by day in Karachi time so
-// DST / month / year rollovers fall out of Intl.
-function msUntilNextRun(now = new Date()) {
-  let candidate = new Date(now.getTime());
-  for (let i = 0; i < 14; i++) {
-    const p = pkParts(candidate);
-    const targetMin = SNAPSHOT_HOUR_PKT * 60 + SNAPSHOT_MIN_PKT;
-    const currentMin = p.hour * 60 + p.minute;
-    const sameDayValid =
-      i > 0 || currentMin < targetMin; // today only if we haven't passed 15:35 yet
-
-    if (sameDayValid) {
-      // Construct the target instant by binary-searching minute offsets — but
-      // since Intl is one-way (instant → wall clock), just step minute by
-      // minute from a coarse anchor. Simpler: probe instants at 1-min
-      // granularity within the day until pkParts reports target wall clock.
-      const dayAnchor = new Date(candidate.getTime());
-      // Start at 00:00 PKT for this PKT date by stepping back to find local
-      // midnight, then add target minutes.
-      // pkParts gives current wall clock; subtract its minutes to land on
-      // PKT midnight, then add target.
-      const ms =
-        dayAnchor.getTime() -
-        (p.hour * 60 + p.minute) * 60_000 +
-        targetMin * 60_000;
-      if (ms > now.getTime()) return ms - now.getTime();
-    }
-    // Advance candidate by 24h and retry
-    candidate = new Date(candidate.getTime() + 24 * 60 * 60_000);
-  }
-  // Fallback (should never hit): 1h
-  return 60 * 60_000;
-}
-
-export async function runDailySync({
-  portfolioDbPath,
-  log = defaultLog,
-  force = false,
-} = {}) {
-  const db = getPortfolioDb(portfolioDbPath);
-  const bundle = loadBundleDb(db);
+export async function runDailySync({ db, log = defaultLog, force = false } = {}) {
+  const bundle = await loadBundleDb(db);
   if (!bundle) {
     log("skip: no portfolio data");
     return { ran: false, reason: "no-portfolio" };
@@ -139,11 +113,33 @@ export async function runDailySync({
   // stocks legitimately have no new close, so snapshot the last close rather
   // than waiting/retrying.
   let freshStock = stockQuotes;
+  let freshnessRule = "not-applicable";
   if (tradingDay && tickers.length > 0) {
     const closeMs = pkCloseInstantMs(pkDate);
     const { fresh, stale } = quoteFreshness(stockQuotes, closeMs);
     const missingCount = tickers.length - stockQuotes.length;
-    if (stale.length > 0 || missingCount > 0) {
+
+    if (stale.length === 0 && missingCount === 0) {
+      freshnessRule = "strict";
+      freshStock = fresh;
+    } else if (missingCount === 0 && allFromFallback(stockQuotes)) {
+      // Relaxed rule: every quote came from a fallback whose timestamp is a
+      // shared refresh stamp, not a trade time, so the close comparison can't
+      // be trusted. Accept what we have and say so loudly — a snapshot built
+      // on a stale stamp is recoverable, a year of missing history is not.
+      const sources = [...new Set(stockQuotes.map((q) => q.source))].join(",");
+      const newest = stockQuotes
+        .map((q) => q.asOf)
+        .filter(Boolean)
+        .sort()
+        .pop();
+      log(
+        `freshness: RELAXED — all ${stockQuotes.length} quotes from fallback source(s) [${sources}]; ` +
+          `close-time gate skipped, newest asOf=${newest ?? "unknown"} (expected >= 15:30 PKT on ${pkDate})`,
+      );
+      freshnessRule = "relaxed-fallback";
+      freshStock = stockQuotes;
+    } else {
       const staleTickers = stale.map((q) => q.ticker).join(",");
       log(
         `skip: quotes not settled — fresh=${fresh.length}/${tickers.length}, stale=${stale.length}, missing=${missingCount}${staleTickers ? `, staleTickers=${staleTickers}` : ""}`,
@@ -156,7 +152,6 @@ export async function runDailySync({
         missing: missingCount,
       };
     }
-    freshStock = fresh;
   }
 
   const quoteCount = freshStock.length;
@@ -213,83 +208,9 @@ export async function runDailySync({
   await serializeSave(() => saveBundle(db, nextBundle));
 
   log(
-    `synced: ${quoteCount} quotes (stocks ${freshStock.length}/${tickers.length}), value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(snapshotIso)}`,
+    `synced: ${quoteCount} quotes (stocks ${freshStock.length}/${tickers.length}), ` +
+      `freshness=${freshnessRule}, kse100=${kse ? `${kse.current} via ${kse.source}` : "unavailable"}, ` +
+      `value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(snapshotIso)}`,
   );
-  return { ran: true, entry, quoteCount };
-}
-
-export function startScheduler({ portfolioDbPath, log = defaultLog } = {}) {
-  let timer = null;
-  let stopped = false;
-
-  const withinStaleRetryWindow = () => {
-    const p = pkParts(new Date());
-    return p.hour < STALE_GIVE_UP_HOUR_PKT;
-  };
-
-  const scheduleIn = (delay, tag, fn) => {
-    if (stopped) return;
-    const fireAt = new Date(Date.now() + delay).toISOString();
-    log(`${tag} scheduled in ${Math.round(delay / 60_000)}m at ${fireAt}`);
-    timer = setTimeout(fn, delay);
-    if (typeof timer.unref === "function") timer.unref();
-  };
-
-  const runAndReschedule = async () => {
-    let result;
-    try {
-      result = await runDailySync({ portfolioDbPath, log });
-    } catch (err) {
-      log(`run failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    if (result && result.reason === "quotes-stale") {
-      if (withinStaleRetryWindow()) {
-        scheduleIn(STALE_RETRY_MS, "stale-retry", runAndReschedule);
-        return;
-      }
-      log(`stale-retry give-up: past ${STALE_GIVE_UP_HOUR_PKT}:00 PKT, no snapshot for today`);
-    }
-    scheduleNext();
-  };
-
-  const scheduleNext = () => {
-    scheduleIn(msUntilNextRun(new Date()), "next run", runAndReschedule);
-  };
-
-  // Catch-up on boot: if we're inside the post-close window and today's PKT
-  // date isn't yet in history, fire immediately. Also fires when caller sets
-  // CRON_RUN_ON_BOOT=1 (handled by env-guarded force flag in caller).
-  const catchUp = async () => {
-    try {
-      const bundle = loadBundleDb(getPortfolioDb(portfolioDbPath));
-      const { pkDate } = psxCloseStatus();
-      if (!bundle || !afterSnapshotTime(pkParts(new Date()))) return { stale: false };
-      const history = Array.isArray(bundle.history) ? bundle.history : [];
-      const haveToday = history.some((s) => pkDateOf(s.date) === pkDate);
-      if (haveToday) {
-        log(`catch-up skip: today (${pkDate}) already in history`);
-        return { stale: false };
-      }
-      log(`catch-up: today (${pkDate}) missing, running now`);
-      const res = await runDailySync({ portfolioDbPath, log });
-      return { stale: res && res.reason === "quotes-stale" };
-    } catch (err) {
-      log(`catch-up failed: ${err instanceof Error ? err.message : String(err)}`);
-      return { stale: false };
-    }
-  };
-
-  catchUp().then(({ stale }) => {
-    if (stale && withinStaleRetryWindow()) {
-      scheduleIn(STALE_RETRY_MS, "stale-retry", runAndReschedule);
-    } else {
-      scheduleNext();
-    }
-  });
-
-  return () => {
-    stopped = true;
-    if (timer) clearTimeout(timer);
-    timer = null;
-  };
+  return { ran: true, entry, quoteCount, freshnessRule };
 }

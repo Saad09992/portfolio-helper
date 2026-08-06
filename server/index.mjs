@@ -1,3 +1,13 @@
+// Node/Docker server. Retained as the rollback path for the Cloudflare Workers
+// deployment (see DEPLOY_CLOUDFLARE.md) — it serves the same API surface from
+// the same route registrations, backed by better-sqlite3 instead of D1.
+//
+// Differences from the Worker entry (worker/index.mjs):
+//   - storage is a local SQLite file rather than a D1 binding
+//   - static assets are served from dist/ rather than the Assets binding
+//   - there is no scheduler here; the daily snapshot is a Cron Trigger on
+//     Workers. Run it manually with `npm run sync` if operating on Node.
+
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -5,16 +15,19 @@ import { readFileSync, existsSync } from "fs";
 import { resolve, dirname, join, relative } from "path";
 import { fileURLToPath } from "url";
 import { registerApiRoutes } from "./api.mjs";
-import { runDailySync, startScheduler } from "./cron.mjs";
+import { openLocalDb } from "./local-db.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
-const DIST = resolve(ROOT, "dist");
+// The Cloudflare Vite plugin emits the client bundle to dist/client (the worker
+// build lands in dist/psx_portfolio alongside it), so the Node path serves from
+// there rather than dist/ directly.
+const DIST = resolve(ROOT, "dist/client");
 const DATA_DIR = process.env.DATA_DIR
   ? resolve(process.env.DATA_DIR)
   : resolve(ROOT, "data");
-const DB_PATH = resolve(DATA_DIR, "psx-stocks.db");
 const PORTFOLIO_DB_PATH = resolve(DATA_DIR, "portfolio.sqlite");
+const STOCKS_JSON = resolve(ROOT, "public/psx-stocks.json");
 
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -40,7 +53,19 @@ app.use("/api/*", async (c, next) => {
   return c.json({ error: "unauthorized" }, 401, { "WWW-Authenticate": "Bearer" });
 });
 
-registerApiRoutes(app, { dbPath: DB_PATH, portfolioDbPath: PORTFOLIO_DB_PATH });
+// One connection for the process lifetime, mirroring the previous behavior.
+const db = openLocalDb(PORTFOLIO_DB_PATH);
+
+// Same static JSON the Worker serves through its Assets binding.
+let stocksCache = null;
+function readStocks() {
+  if (stocksCache) return stocksCache;
+  if (!existsSync(STOCKS_JSON)) return null;
+  stocksCache = JSON.parse(readFileSync(STOCKS_JSON, "utf-8"));
+  return stocksCache;
+}
+
+registerApiRoutes(app, { getDb: () => db, getStocks: () => readStocks() });
 
 // Unmatched API paths (wrong method, bad path) → 404 JSON. Must precede the
 // static/SPA handlers so an API miss never falls through to index.html.
@@ -73,28 +98,13 @@ app.get("/*", (c) => {
   return c.text("Not Found", 404);
 });
 
-let stopScheduler = () => {};
-
 const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }, () => {
   console.log(`[psx] listening on http://${HOST}:${PORT}`);
   console.log(`[psx] data dir: ${DATA_DIR}`);
-
-  if (process.env.CRON_DISABLED) {
-    console.log("[psx:cron] disabled via CRON_DISABLED");
-  } else {
-    if (process.env.CRON_RUN_ON_BOOT) {
-      console.log("[psx:cron] CRON_RUN_ON_BOOT=1 — forcing immediate sync");
-      runDailySync({ portfolioDbPath: PORTFOLIO_DB_PATH, force: true }).catch((err) =>
-        console.error("[psx:cron] forced run failed:", err),
-      );
-    }
-    stopScheduler = startScheduler({ portfolioDbPath: PORTFOLIO_DB_PATH });
-  }
 });
 
 const shutdown = (sig) => {
   console.log(`[psx] ${sig} received, shutting down`);
-  stopScheduler();
   server.close(() => process.exit(0));
 };
 process.on("SIGINT", () => shutdown("SIGINT"));

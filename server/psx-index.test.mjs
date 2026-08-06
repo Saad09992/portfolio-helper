@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseEodTimeseries } from "./psx-index.mjs";
+import { parseEodTimeseries, parsePsxIndexPage } from "./psx-index.mjs";
 
 describe("parseEodTimeseries", () => {
   const json = {
@@ -33,5 +33,53 @@ describe("parseEodTimeseries", () => {
     expect(parseEodTimeseries(null)).toBeNull();
     expect(parseEodTimeseries({ status: 0, data: [] })).toBeNull();
     expect(parseEodTimeseries({ status: 1, data: [] })).toBeNull();
+  });
+});
+
+describe("parsePsxIndexPage", () => {
+  // Trimmed from the live www.psx.com.pk home page. The `id="cahnge"` typo and
+  // the duplicated `id="volume"` are upstream's, reproduced verbatim — the
+  // parser must not be "corrected" to ids that don't exist.
+  const html = `
+    <table><tbody>
+      <tr><td>Market Status</td><td>Open </td></tr>
+      <tr><td>Current Index</td><td id="curIndex">180,756.91</td></tr>
+      <tr><td>Change</td><td id="cahnge">741.98</td></tr>
+      <tr><td>Percent Change</td><td id="percentchange">0.41%</td></tr>
+      <tr><td>High</td><td id="high">181,687.19</td></tr>
+      <tr><td>Low</td><td id="low">180,686.36</td></tr>
+      <tr><td>Volume</td><td id="volume">142,142,177</td></tr>
+      <tr><td>Previous Close</td><td id="volume">180,014.93</td></tr>
+    </tbody></table>`;
+
+  it("extracts the current level with thousands separators stripped", () => {
+    const out = parsePsxIndexPage(html);
+    expect(out.current).toBe(180756.91);
+    expect(out.changePct).toBeCloseTo(0.41, 6);
+    expect(out.source).toBe("psx-www");
+  });
+
+  it("carries no series — the home page has no history", () => {
+    expect(parsePsxIndexPage(html).series).toEqual([]);
+  });
+
+  it("stamps asOf with fetch time so freshness has something to compare", () => {
+    const before = Date.now();
+    const out = parsePsxIndexPage(html);
+    expect(Date.parse(out.asOf)).toBeGreaterThanOrEqual(before);
+  });
+
+  it("takes the percent sign from the change cell on a down day", () => {
+    const down = html
+      .replace('id="cahnge">741.98', 'id="cahnge">-741.98')
+      .replace('id="percentchange">0.41%', 'id="percentchange">0.41%');
+    expect(parsePsxIndexPage(down).changePct).toBeCloseTo(-0.41, 6);
+  });
+
+  it("returns null when the index cell is missing or unusable", () => {
+    expect(parsePsxIndexPage("")).toBeNull();
+    expect(parsePsxIndexPage(null)).toBeNull();
+    expect(parsePsxIndexPage("<table><tr><td>no index here</td></tr></table>")).toBeNull();
+    expect(parsePsxIndexPage('<td id="curIndex">0</td>')).toBeNull();
   });
 });

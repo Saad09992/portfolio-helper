@@ -73,6 +73,7 @@ export function replayLedger(
   const realized: RealizedSlice[] = [];
   const dividends: LedgerState["dividends"] = [];
   const bonusTaxes: LedgerState["bonusTaxes"] = [];
+  const taxPayments: LedgerState["taxPayments"] = [];
   const issues: LedgerIssue[] = [];
   let cash = 0;
 
@@ -98,14 +99,22 @@ export function replayLedger(
       continue;
     }
 
-    if (type === "DEPOSIT" || type === "WITHDRAW") {
+    if (type === "DEPOSIT" || type === "WITHDRAW" || type === "TAX") {
       if (amount <= 0) {
         fail(txn, "Cash amount must be positive — entry skipped.");
         continue;
       }
       cash += type === "DEPOSIT" ? amount : -amount;
+      if (type === "TAX") {
+        taxPayments.push({ txnId: txn.id, date: day, amount, note: txn.note ?? "" });
+      }
       if (cash < 0) {
-        fail(txn, "Withdrawal takes the cash balance negative.");
+        fail(
+          txn,
+          type === "TAX"
+            ? "Tax payment takes the cash balance negative."
+            : "Withdrawal takes the cash balance negative.",
+        );
       }
       continue;
     }
@@ -211,14 +220,19 @@ export function replayLedger(
           });
         });
 
-        const net = value - fees.total - cgtTotal;
+        // Cash follows the broker note: gross less brokerage, nothing else.
+        // CGT is accrued, not deducted — NCCPL nets a whole month of gains and
+        // losses before collecting anything, so a per-trade deduction would
+        // both overstate the bill and leave `cash` unable to reconcile with the
+        // statement. It leaves the account via a TAX entry.
+        const proceeds = value - fees.total;
         pos.shares -= shares;
         pos.cost -= costTotal;
-        pos.realized += net - costTotal;
+        pos.realized += proceeds - cgtTotal - costTotal;
         pos.feesPaid += fees.total;
         pos.taxesPaid += cgtTotal;
-        pos.returned += net;
-        cash += net;
+        pos.returned += proceeds;
+        cash += proceeds;
         break;
       }
 
@@ -303,5 +317,5 @@ export function replayLedger(
     }
   }
 
-  return { positions, realized, dividends, bonusTaxes, cash, issues };
+  return { positions, realized, dividends, bonusTaxes, taxPayments, cash, issues };
 }

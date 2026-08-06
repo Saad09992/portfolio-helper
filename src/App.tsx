@@ -1337,6 +1337,7 @@ function App() {
           feeConfig={ledger.feeConfig}
           state={ledger.state}
           cash={ledger.cash}
+          cgtReserve={ledger.cgtReserve}
           hasLedger={ledger.hasLedger}
           storedHoldings={holdings}
           storedCash={cashDraft.available}

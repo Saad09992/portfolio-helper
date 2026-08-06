@@ -12,16 +12,21 @@ import { LedgerMigration } from "../components/LedgerMigration";
 
 const TYPES: { value: TxnType; label: string; hint: string }[] = [
   { value: "BUY", label: "Buy", hint: "Shares bought — fees are added to your cost." },
-  { value: "SELL", label: "Sell", hint: "Shares sold — fees and CGT come out of the proceeds." },
+  { value: "SELL", label: "Sell", hint: "Shares sold — fees come out of the proceeds. CGT is accrued for later, not deducted here." },
   { value: "DIVIDEND", label: "Dividend", hint: "Cash dividend, credited net of withholding tax." },
   { value: "BONUS", label: "Bonus", hint: "Free shares. Taxed on their issue value." },
   { value: "RIGHT", label: "Rights", hint: "Rights subscription at the offer price." },
   { value: "SPLIT", label: "Split", hint: "Share split or consolidation. Cost is unchanged." },
   { value: "DEPOSIT", label: "Deposit", hint: "Cash paid into the brokerage account." },
   { value: "WITHDRAW", label: "Withdraw", hint: "Cash taken out of the account." },
+  {
+    value: "TAX",
+    label: "Tax paid",
+    hint: "A CGT settlement debited by NCCPL. Copy the amount off the statement — it draws down the reserve.",
+  },
 ];
 
-const CASH_TYPES: TxnType[] = ["DEPOSIT", "WITHDRAW"];
+const CASH_TYPES: TxnType[] = ["DEPOSIT", "WITHDRAW", "TAX"];
 
 type Draft = {
   type: TxnType;
@@ -56,6 +61,8 @@ export type LedgerPageProps = {
   feeConfig: FeeConfig;
   state: LedgerState;
   cash: number;
+  /** paisa — CGT accrued but not yet paid, sitting inside `cash` */
+  cgtReserve: number;
   hasLedger: boolean;
   /** stored holdings, used to seed the one-time migration */
   storedHoldings: Holding[];
@@ -71,6 +78,7 @@ export function LedgerPage({
   feeConfig,
   state,
   cash,
+  cgtReserve,
   hasLedger,
   storedHoldings,
   storedCash,
@@ -220,7 +228,16 @@ export function LedgerPage({
             <p className="panel-kicker">Record</p>
             <h2>New entry</h2>
           </div>
-          <span className="panel-meta num">Cash: {formatCurrency(cash)}</span>
+          <span className="panel-meta num">
+            Cash: {formatCurrency(cash)}
+            {cgtReserve > 0 ? (
+              <>
+                {" · "}
+                {formatCurrency(cash - cgtReserve)} after {formatCurrency(cgtReserve)} tax
+                reserve
+              </>
+            ) : null}
+          </span>
         </div>
 
         <div className="chip-group">
@@ -468,7 +485,9 @@ export function LedgerPage({
 }
 
 function rowValue(txn: Transaction): number {
-  if (txn.type === "DEPOSIT" || txn.type === "WITHDRAW") return txn.amount;
+  if (txn.type === "DEPOSIT" || txn.type === "WITHDRAW" || txn.type === "TAX") {
+    return txn.amount;
+  }
   if (txn.type === "DIVIDEND") return txn.amount > 0 ? txn.amount : 0;
   if (txn.type === "SPLIT") return 0;
   return tradeValue(txn.shares, txn.price);
@@ -513,7 +532,7 @@ function buildPreview(
     }
     const total = fees?.total ?? 0;
     lines.push({
-      label: type === "SELL" ? "Cash in (before CGT)" : "Cash out",
+      label: type === "SELL" ? "Cash in" : "Cash out",
       value: type === "SELL" ? value - total : value + total,
       strong: true,
     });
@@ -541,7 +560,7 @@ function buildPreview(
     return { lines };
   }
 
-  if (type === "DEPOSIT" || type === "WITHDRAW") {
+  if (type === "DEPOSIT" || type === "WITHDRAW" || type === "TAX") {
     if (amount <= 0) return { lines };
     lines.push({ label: type === "DEPOSIT" ? "Cash in" : "Cash out", value: amount, strong: true });
     return { lines };

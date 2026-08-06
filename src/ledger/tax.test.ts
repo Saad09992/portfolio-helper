@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { replayLedger } from "./replay";
 import { DEFAULT_FEE_CONFIG } from "./feeConfig";
-import { buildTaxYears, fiscalYearOf, fiscalYearRange } from "./tax";
+import { buildTaxYears, cgtReserve, fiscalYearOf, fiscalYearRange } from "./tax";
 import type { Transaction, TxnType } from "./types";
 
 const cfg = DEFAULT_FEE_CONFIG;
@@ -24,9 +24,15 @@ function txn(type: TxnType, date: string, over: Partial<Transaction> = {}): Tran
   };
 }
 
-function years(txns: Transaction[]) {
-  return buildTaxYears(replayLedger(txns, cfg), cfg);
+function years(txns: Transaction[], override = cfg) {
+  return buildTaxYears(replayLedger(txns, override), override);
 }
+
+/** A profitable round trip inside FY 2025-26, with no offsetting losses. */
+const gainOnly = [
+  txn("BUY", "2025-08-01", { shares: 100, price: 10000 }),
+  txn("SELL", "2025-09-01", { shares: 100, price: 14000 }),
+];
 
 describe("fiscal year", () => {
   it("starts a new year in July", () => {
@@ -60,9 +66,11 @@ describe("gain / loss netting", () => {
     expect(fy.gains).toBeGreaterThan(0);
     expect(fy.losses).toBeGreaterThan(0);
     expect(fy.taxable).toBe(fy.gains - fy.offsetUsed);
+    // Gross CGT taxes the winner blind to the loser; netting is what cuts it.
     expect(fy.cgtDue).toBeLessThan(fy.cgtCharged);
-    // NCCPL deducted on the winner without seeing the loser — expect a refund.
-    expect(fy.cgtRefundable).toBeGreaterThan(0);
+    // Nothing has been debited yet, so the whole netted bill is still owed.
+    expect(fy.cgtPaid).toBe(0);
+    expect(fy.cgtOutstanding).toBe(fy.cgtDue);
   });
 
   it("carries an unused loss forward and spends it the next year", () => {
@@ -150,10 +158,78 @@ describe("other taxes", () => {
       txn("BUY", "2025-08-01", { shares: 100, price: 10000 }),
       txn("SELL", "2025-09-01", { shares: 100, price: 12000 }),
     ]);
-    expect(fy.sellFees).toBe(2672);
+    expect(fy.sellFees).toBe(2667);
   });
 
   it("returns nothing for an empty ledger", () => {
     expect(years([])).toEqual([]);
+  });
+});
+
+describe("CGT settlement", () => {
+  it("owes the whole netted bill until NCCPL debits it", () => {
+    const [fy] = years(gainOnly);
+
+    expect(fy.cgtDue).toBeGreaterThan(0);
+    expect(fy.cgtPaid).toBe(0);
+    expect(fy.cgtOutstanding).toBe(fy.cgtDue);
+  });
+
+  it("draws the outstanding balance down by a TAX entry", () => {
+    const [fy] = years([...gainOnly, txn("TAX", "2025-10-15", { amount: 20_000 })]);
+
+    expect(fy.cgtPaid).toBe(20_000);
+    expect(fy.cgtOutstanding).toBe(fy.cgtDue - 20_000);
+  });
+
+  it("reports an overpayment as a negative balance, excluded from the reserve", () => {
+    const out = years([...gainOnly, txn("TAX", "2025-10-15", { amount: 900_000 })]);
+
+    expect(out[0].cgtOutstanding).toBeLessThan(0);
+    expect(cgtReserve(out)).toBe(0);
+  });
+
+  it("sums only the years still owing into the reserve", () => {
+    const out = years(gainOnly);
+    expect(cgtReserve(out)).toBe(out[0].cgtDue);
+  });
+
+  it("books the payment against the fiscal year it was debited in", () => {
+    const out = years([...gainOnly, txn("TAX", "2026-08-15", { amount: 5000 })]);
+    const paid = Object.fromEntries(out.map((y) => [y.fy, y.cgtPaid]));
+
+    expect(paid["2025-26"]).toBe(0);
+    expect(paid["2026-27"]).toBe(5000);
+  });
+});
+
+describe("losses carried in from before the ledger", () => {
+  const withOpening = {
+    ...cfg,
+    openingLosses: [{ fy: "2024-25", amount: 461_858 }],
+  };
+
+  it("shelters the first year's gains and leaves nothing owed", () => {
+    const [fy] = years(gainOnly, withOpening);
+
+    expect(fy.carryIn).toBe(461_858);
+    expect(fy.taxable).toBe(0);
+    expect(fy.cgtDue).toBe(0);
+    expect(fy.cgtOutstanding).toBe(0);
+  });
+
+  it("spends only what the gains need and carries the rest on", () => {
+    const [fy] = years(gainOnly, withOpening);
+
+    expect(fy.offsetUsed).toBe(fy.gains);
+    expect(fy.carryOut).toBe(461_858 - fy.gains);
+  });
+
+  it("lets an opening loss expire on schedule", () => {
+    const stale = { ...cfg, openingLosses: [{ fy: "2020-21", amount: 461_858 }] };
+    const [fy] = years(gainOnly, stale);
+
+    expect(fy.carryIn).toBe(0);
+    expect(fy.cgtDue).toBeGreaterThan(0);
   });
 });

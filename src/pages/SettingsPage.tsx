@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Field } from "../components/ui/Field";
 import { formatCurrency } from "../utils";
 import { paisaToRupees, rupeesToPaisa } from "../money";
-import { DEFAULT_FEE_CONFIG, type FeeConfig } from "../ledger/feeConfig";
+import { DEFAULT_FEE_CONFIG, type FeeConfig, type OpeningLoss } from "../ledger/feeConfig";
+import { fiscalYearOf, LOSS_CARRY_FORWARD_YEARS } from "../ledger/tax";
 import { computeTradeCosts, tradeValue } from "../ledger/fees";
 
 export type SettingsPageProps = {
@@ -14,6 +15,12 @@ export type SettingsPageProps = {
 /** Trade the worked example prices out, so a rate typo is obvious immediately. */
 const EXAMPLE_SHARES = 100;
 const EXAMPLE_PRICE = 14500; // Rs 145.00
+
+/** The fiscal year that just closed — the one a carried-in loss usually came from. */
+function priorFiscalYear(iso: string): string {
+  const start = Number(fiscalYearOf(iso).slice(0, 4)) - 1;
+  return `${start}-${String((start + 1) % 100).padStart(2, "0")}`;
+}
 
 export function SettingsPage({
   feeConfig,
@@ -37,6 +44,29 @@ export function SettingsPage({
     value: String(current),
     onChange: (raw: string) => updateFeeConfig({ [key]: Number(raw) || 0 } as Partial<FeeConfig>),
   });
+
+  // Half-typed rows ("2025-2", a blank amount) are dropped by normalizeFeeConfig,
+  // so the rows being edited live here and only the valid ones reach the config.
+  const [openingLosses, setOpeningLosses] = useState<OpeningLoss[]>(
+    () => feeConfig.openingLosses ?? [],
+  );
+
+  const commitLosses = (next: OpeningLoss[]) => {
+    setOpeningLosses(next);
+    updateFeeConfig({ openingLosses: next });
+  };
+
+  const patchLoss = (index: number, patch: Partial<OpeningLoss>) =>
+    commitLosses(openingLosses.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+
+  const removeLoss = (index: number) =>
+    commitLosses(openingLosses.filter((_, i) => i !== index));
+
+  const addLoss = () =>
+    commitLosses([
+      ...openingLosses,
+      { fy: priorFiscalYear(new Date().toISOString()), amount: 0 },
+    ]);
 
   return (
     <>
@@ -110,7 +140,7 @@ export function SettingsPage({
             {...pct(feeConfig.salesTaxOnCommissionPct, "salesTaxOnCommissionPct")}
           />
           <Field
-            label="CDC charge (%)"
+            label="CDC charge (%) — usually 0"
             type="number"
             min={0}
             step="0.001"
@@ -124,7 +154,7 @@ export function SettingsPage({
             {...pct(feeConfig.nccplPct, "nccplPct")}
           />
           <Field
-            label="SECP / PSX levy (%)"
+            label="PSX laga + SECP levy (%)"
             type="number"
             min={0}
             step="0.0001"
@@ -183,6 +213,63 @@ export function SettingsPage({
           sold. Each lot keeps its own acquisition date, so a position built
           across the cutoff is taxed tranche by tranche.
         </p>
+
+        <h3 className="settings-group-title">Losses carried in from before the ledger</h3>
+        <p className="muted-note">
+          Capital losses from tax years that predate your first entry still
+          shelter its gains, but the ledger cannot see them. Take each figure
+          from the June NCCPL statement for that year — its{" "}
+          <em>Net Capital Gain/(Loss) as of reporting month</em> is the year&apos;s
+          closing position. Losses expire {LOSS_CARRY_FORWARD_YEARS} tax years
+          after the year they arose.
+        </p>
+
+        {openingLosses.length > 0 ? (
+          <table className="cost-preview">
+            <tbody>
+              {openingLosses.map((loss, index) => (
+                <tr key={index}>
+                  <td>
+                    <input
+                      type="text"
+                      className="inline-edit"
+                      placeholder="2025-26"
+                      value={loss.fy}
+                      onChange={(e) => patchLoss(index, { fy: e.target.value })}
+                    />
+                  </td>
+                  <td className="right">
+                    <input
+                      type="number"
+                      className="inline-edit"
+                      min={0}
+                      step="0.01"
+                      value={String(paisaToRupees(loss.amount))}
+                      onChange={(e) =>
+                        patchLoss(index, { amount: rupeesToPaisa(Number(e.target.value) || 0) })
+                      }
+                    />
+                  </td>
+                  <td className="right">
+                    <button
+                      type="button"
+                      className="remove-button"
+                      onClick={() => removeLoss(index)}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+
+        <div className="form-actions">
+          <button type="button" className="button button-sm" onClick={addLoss}>
+            Add a carried-in loss
+          </button>
+        </div>
       </section>
 
       <section className="panel">
@@ -252,7 +339,7 @@ export function SettingsPage({
               <td className="right num">{formatCurrency(value + fees.total)}</td>
             </tr>
             <tr>
-              <td>Cash in on a sell (before CGT)</td>
+              <td>Cash in on a sell</td>
               <td className="right num">{formatCurrency(value - fees.total)}</td>
             </tr>
           </tbody>

@@ -110,9 +110,14 @@ export const METRIC_INFO = {
     reading:
       "A cushion on next year's tax bill. Watch the expiry: a loss that ages out saves you nothing.",
   },
-  cgtRefundable: {
-    what: "CGT deducted trade-by-trade minus what the year's gains net of losses actually imply.",
+  cgtOutstanding: {
+    what: "CGT the year's netted gains imply, minus what NCCPL has actually debited so far.",
     reading:
-      "Positive means more was deducted than the netted position requires — expect it back at settlement. Negative means a shortfall to settle.",
+      "Positive is money in your cash balance that is not yours — set it aside for the next NCCPL debit. Negative means you have overpaid and a refund is due.",
+  },
+  cgtReserve: {
+    what: "Total unpaid CGT across every tax year, held against the cash balance.",
+    reading:
+      "Cash minus this is what you can actually deploy. It falls on its own when later losses net off the gains, so it is an estimate until NCCPL settles.",
   },
 } satisfies Record<string, MetricInfo>;

@@ -12,7 +12,7 @@ import { DEFAULT_FEE_CONFIG, normalizeFeeConfig, type FeeConfig } from "../ledge
 import { replayLedger } from "../ledger/replay";
 import { deriveHoldings, ledgerTotals } from "../ledger/deriveHoldings";
 import { buildStockRows, type StockLedgerRow } from "../ledger/perStock";
-import { buildTaxYears, type TaxYear } from "../ledger/tax";
+import { buildTaxYears, cgtReserve, type TaxYear } from "../ledger/tax";
 import type { LedgerState, Transaction } from "../ledger/types";
 import {
   loadFeeConfig,
@@ -33,8 +33,10 @@ export type LedgerApi = {
   totals: ReturnType<typeof ledgerTotals>;
   /** Holdings to render: ledger-derived once the ledger exists, else the stored rows. */
   holdings: Holding[];
-  /** paisa — cash implied by the ledger */
+  /** paisa — cash implied by the ledger; reconciles with the broker statement */
   cash: number;
+  /** paisa — CGT accrued but not yet debited by NCCPL, held against `cash` */
+  cgtReserve: number;
   /** false until the first transaction is recorded (pre-migration state) */
   hasLedger: boolean;
   addTransaction: (draft: TransactionDraft) => Transaction;
@@ -87,6 +89,8 @@ export function useLedger(storedHoldings: Holding[]): LedgerApi {
   );
 
   const taxYears = useMemo(() => buildTaxYears(state, feeConfig), [state, feeConfig]);
+
+  const reserve = useMemo(() => cgtReserve(taxYears), [taxYears]);
 
   const totals = useMemo(() => ledgerTotals(state, priceByTicker), [state, priceByTicker]);
 
@@ -155,6 +159,7 @@ export function useLedger(storedHoldings: Holding[]): LedgerApi {
     totals,
     holdings,
     cash: state.cash,
+    cgtReserve: reserve,
     hasLedger,
     addTransaction,
     addTransactions,

@@ -72,6 +72,7 @@ describe("LedgerPage", () => {
         feeConfig={DEFAULT_FEE_CONFIG}
         state={state}
         cash={state.cash}
+        cgtReserve={0}
         hasLedger
         storedHoldings={[storedHolding]}
         storedCash={0}
@@ -94,6 +95,7 @@ describe("LedgerPage", () => {
         feeConfig={DEFAULT_FEE_CONFIG}
         state={empty}
         cash={0}
+        cgtReserve={0}
         hasLedger={false}
         storedHoldings={[storedHolding]}
         storedCash={250_000}

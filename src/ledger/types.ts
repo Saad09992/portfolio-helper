@@ -5,13 +5,16 @@
 /**
  * Ledger event kinds.
  *
- * - BUY / SELL    — market trades; carry fees, and SELL carries CGT.
+ * - BUY / SELL    — market trades; carry fees. A SELL accrues CGT but does NOT
+ *                   pay it: NCCPL collects centrally, later. See TAX.
  * - DIVIDENDplain — cash dividend, taxed at `dividendWhtPct`.
  * - BONUS         — free shares; taxed at `bonusTaxPct` on their issue value.
  * - RIGHT         — rights subscription; new shares at the subscription price.
  * - SPLIT         — share split / consolidation; rescales open lots.
  * - DEPOSIT /
  *   WITHDRAW      — cash movements in and out of the brokerage account.
+ * - TAX           — a CGT settlement actually debited by NCCPL. Reduces cash and
+ *                   draws down the accrued reserve for its fiscal year.
  */
 export type TxnType =
   | "BUY"
@@ -21,7 +24,8 @@ export type TxnType =
   | "RIGHT"
   | "SPLIT"
   | "DEPOSIT"
-  | "WITHDRAW";
+  | "WITHDRAW"
+  | "TAX";
 
 /** Itemized trade costs, all paisa. `total` is the sum of the components. */
 export type FeeBreakdown = {
@@ -60,6 +64,7 @@ export const ZERO_FEES: FeeBreakdown = {
  * | DIVIDEND          | —      | paisa/share    | gross override|
  * | SPLIT             | —      | —              | —             |
  * | DEPOSIT/WITHDRAW  | —      | —              | paisa         |
+ * | TAX               | —      | —              | paisa         |
  */
 export type Transaction = {
   id: string;
@@ -148,6 +153,22 @@ export type BonusTaxCharge = {
   tax: number;
 };
 
+/**
+ * A CGT settlement actually debited by NCCPL, recorded from a broker statement.
+ *
+ * This is the only place real tax cash leaves the account. Per-trade `cgt` on a
+ * `RealizedSlice` is an accrual — NCCPL nets gains against losses over the month
+ * and the fiscal year, so what it finally collects is almost never the sum of
+ * the per-trade figures.
+ */
+export type TaxPayment = {
+  txnId: string;
+  date: string;
+  /** paisa */
+  amount: number;
+  note: string;
+};
+
 /** Per-ticker aggregate produced by the replay. */
 export type PositionState = {
   ticker: string;
@@ -158,17 +179,20 @@ export type PositionState = {
   shares: number;
   /** paisa, fee-inclusive (sum of `lots[].cost`) */
   cost: number;
-  /** paisa — net realized P&L: proceeds − fees − cost − cgt */
+  /** paisa — net realized P&L: proceeds − fees − cost − accrued cgt */
   realized: number;
   /** paisa — net dividends received */
   dividends: number;
   /** paisa — every fee ever paid on this ticker (buys and sells) */
   feesPaid: number;
-  /** paisa — CGT + dividend WHT + bonus tax booked against this ticker */
+  /**
+   * paisa — CGT + dividend WHT + bonus tax booked against this ticker. WHT and
+   * bonus tax are withheld at source; the CGT part is an accrual, not cash out.
+   */
   taxesPaid: number;
   /** paisa — total cash ever put into this ticker (buy value + fees + rights) */
   invested: number;
-  /** paisa — total cash ever taken out (net sale proceeds + net dividends) */
+  /** paisa — cash actually taken out (sale proceeds after fees + net dividends) */
   returned: number;
   firstDate: string;
   lastDate: string;
@@ -188,7 +212,13 @@ export type LedgerState = {
   realized: RealizedSlice[];
   dividends: DividendReceipt[];
   bonusTaxes: BonusTaxCharge[];
-  /** paisa — derived account cash: deposits − outflows + inflows */
+  taxPayments: TaxPayment[];
+  /**
+   * paisa — derived account cash: deposits − outflows + inflows.
+   *
+   * Reconciles with the broker statement. Accrued CGT is deliberately NOT
+   * deducted here — it leaves the account only via a `TAX` entry.
+   */
   cash: number;
   issues: LedgerIssue[];
 };

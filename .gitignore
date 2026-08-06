@@ -49,3 +49,10 @@ Thumbs.db
 
 # Local Worker secrets
 .dev.vars
+
+# Real portfolio data and broker statements. These are personal financial
+# records, not fixtures — `data/` holds the live portfolio.json and the local
+# SQLite, and the LedgerReport PDFs are IWT account statements. They were
+# untracked but not ignored, so a stray `git add -A` would have committed them.
+data/
+LedgerReport-*.pdf

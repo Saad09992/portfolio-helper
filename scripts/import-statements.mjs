@@ -303,7 +303,10 @@ function main(argv) {
   const out = outIdx >= 0 ? args[outIdx + 1] : "statement-bundle.json";
   const cashIdx = args.findIndex((a) => a === "--cash");
   const cashTarget = cashIdx >= 0 ? money(args[cashIdx + 1]) : null;
-  const dir = args.find((a, i) => !a.startsWith("-") && i !== outIdx + 1 && i !== cashIdx + 1) ?? "statements";
+  const cfgIdx = args.findIndex((a) => a === "--config");
+  const lossIdx = args.findIndex((a) => a === "--opening-loss");
+  const consumed = new Set([outIdx + 1, cashIdx + 1, cfgIdx + 1, lossIdx + 1]);
+  const dir = args.find((a, i) => !a.startsWith("-") && !consumed.has(i)) ?? "statements";
 
   const securities = loadSecurities("data/psx-stocks.db");
   const warnings = [];
@@ -392,7 +395,27 @@ function main(argv) {
     console.log(`  cash: trades swing ${rupees(swing)}, opening ${rupees(opening)} -> ${rupees(cashTarget)}`);
   }
 
-  writeFileSync(out, JSON.stringify({ version: SCHEMA_VERSION, transactions: ordered }, null, 2));
+  // Carrying the fee config in the bundle makes the import atomic. It matters
+  // for `openingLosses`: a seeded prior-year loss covers history the ledger
+  // could not see, so once the import supplies that history the seed has to
+  // shrink by whatever the ledger now computes for itself, or the loss is
+  // counted twice. Applying config and trades in one step removes the window
+  // where only one of them has landed.
+  let feeConfig = null;
+  if (cfgIdx >= 0) {
+    feeConfig = JSON.parse(readFileSync(args[cfgIdx + 1], "utf8"));
+    if (lossIdx >= 0) {
+      const [fy, amount] = args[lossIdx + 1].split(":");
+      feeConfig.openingLosses = amount && money(amount) > 0 ? [{ fy, amount: money(amount) }] : [];
+      console.log(`  feeConfig: openingLosses -> ${fy} ${amount}`);
+    }
+  } else if (lossIdx >= 0) {
+    onWarn("--opening-loss needs --config: a partial fee config would reset every other rate to its default");
+  }
+
+  const bundle = { version: SCHEMA_VERSION, transactions: ordered };
+  if (feeConfig) bundle.feeConfig = feeConfig;
+  writeFileSync(out, JSON.stringify(bundle, null, 2));
 
   console.log(`\n${ordered.length} transactions -> ${out}`);
   if (ordered.length) {

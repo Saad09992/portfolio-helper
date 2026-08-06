@@ -8,6 +8,21 @@ ngrok) and onto Cloudflare Workers.
 migration as built; see [What changed during implementation](#what-changed-during-implementation)
 for where reality diverged from the original plan.
 
+**Deploys are automatic.** Cloudflare Workers Builds watches `main` and runs
+`npm test && npm run build`, then
+`npx wrangler deploy -c dist/psx_portfolio/wrangler.json`. A failing test blocks
+the deploy. Two things it does *not* do:
+
+- **Migrations.** Run `npm run cf:migrate` before pushing any change that adds a
+  file to `migrations/`, or the new code meets an old schema.
+- **Secrets.** `SESSION_SECRET` and `APP_PASSWORD_HASH` live on the Worker and
+  are never in the repo or the build environment.
+
+The deploy command must stay as written. A bare `wrangler deploy` reads the root
+`wrangler.jsonc`, whose `assets.directory` is `./dist` — a path that does not
+exist after the Vite build, which emits `dist/client` plus a rewritten config at
+`dist/psx_portfolio/wrangler.json`.
+
 ---
 
 ## Verdict

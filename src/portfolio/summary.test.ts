@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DerivedHolding, InvestmentEntry, SectorBucket } from "../types";
 import type { PortfolioSnapshot } from "../utils";
+import { DEFAULT_FEE_CONFIG } from "../ledger/feeConfig";
 import {
   buildPortfolioSummary,
   type PortfolioSummaryInput,
@@ -301,23 +302,105 @@ describe("ledger sections", () => {
     },
   ];
 
-  it("adds per-stock and tax tables in comprehensive mode", () => {
-    const md = buildPortfolioSummary(baseInput({ stocks, taxYears }), "comprehensive");
+  const transactions = [
+    {
+      id: "t1",
+      date: "2025-01-10",
+      type: "BUY" as const,
+      ticker: "LUCK",
+      name: "Lucky Cement",
+      sector: "Materials",
+      shares: 150,
+      price: 14_800,
+      amount: 0,
+      note: "opening",
+    },
+    {
+      id: "t2",
+      date: "2025-06-10",
+      type: "SELL" as const,
+      ticker: "LUCK",
+      name: "",
+      sector: "",
+      shares: 30,
+      price: 16_000,
+      amount: 0,
+      note: "trim",
+    },
+    {
+      id: "t3",
+      date: "2025-01-01",
+      type: "DEPOSIT" as const,
+      ticker: "",
+      name: "",
+      sector: "",
+      shares: 0,
+      price: 0,
+      amount: 5_000_000,
+      note: "opening cash",
+    },
+  ];
+
+  const realized = [
+    {
+      txnId: "t2",
+      ticker: "LUCK",
+      sellDate: "2025-06-10",
+      buyDate: "2025-01-10",
+      shares: 30,
+      proceeds: 480_000,
+      fees: 800,
+      cost: 444_000,
+      gain: 35_200,
+      cgtRatePct: 15,
+      cgt: 5280,
+    },
+  ];
+
+  const ledgerInput = {
+    stocks,
+    taxYears,
+    transactions,
+    realized,
+    dividends: [],
+    bonusTaxes: [],
+    feeConfig: DEFAULT_FEE_CONFIG,
+  };
+
+  it("shows the per-stock scoreboard from compact up", () => {
+    const md = buildPortfolioSummary(baseInput(ledgerInput), "compact");
     expect(md).toMatch(/## Per-stock P\/L \(net of fees and taxes\)/);
+    expect(md).toMatch(/Portfolio net P\/L/);
+    // Detail and the trade ledger stay out of compact.
+    expect(md).not.toMatch(/## Stock detail/);
+    expect(md).not.toMatch(/## Trade ledger/);
+  });
+
+  it("adds stock detail, trade ledger and taxes in comprehensive mode", () => {
+    const md = buildPortfolioSummary(baseInput(ledgerInput), "comprehensive");
+    expect(md).toMatch(/## Per-stock P\/L/);
+    expect(md).toMatch(/## Stock detail/);
+    expect(md).toMatch(/### LUCK — Lucky Cement/);
     expect(md).toMatch(/## Taxes by fiscal year/);
-    expect(md).toMatch(/LUCK/);
+    expect(md).toMatch(/## Trade ledger/);
+    // Every transaction appears in the ledger, cash movements included.
+    expect(md).toMatch(/DEPOSIT/);
+    expect(md).toMatch(/SELL/);
+    // The sale's CGT surfaces in the stock detail's realized-sales table.
     expect(md).toMatch(/2024-25/);
   });
 
-  it("leaves them out of compact mode", () => {
-    const md = buildPortfolioSummary(baseInput({ stocks, taxYears }), "compact");
-    expect(md).not.toMatch(/## Per-stock P\/L/);
-    expect(md).not.toMatch(/## Taxes by fiscal year/);
+  it("itemizes the sale under its stock's detail block", () => {
+    const md = buildPortfolioSummary(baseInput(ledgerInput), "comprehensive");
+    const detail = md.slice(md.indexOf("## Stock detail"));
+    expect(detail).toMatch(/Sold \| Bought \| Shares/);
   });
 
-  it("omits the sections entirely when the ledger is empty", () => {
+  it("omits every ledger section when there is no ledger", () => {
     const md = buildPortfolioSummary(baseInput(), "comprehensive");
     expect(md).not.toMatch(/## Per-stock P\/L/);
+    expect(md).not.toMatch(/## Stock detail/);
+    expect(md).not.toMatch(/## Trade ledger/);
     expect(md).not.toMatch(/## Taxes by fiscal year/);
   });
 });

@@ -1,6 +1,14 @@
 import type { DerivedHolding, InvestmentEntry, SectorBucket } from "../types";
 import type { StockLedgerRow } from "../ledger/perStock";
 import type { TaxYear } from "../ledger/tax";
+import type { FeeConfig } from "../ledger/feeConfig";
+import type {
+  BonusTaxCharge,
+  DividendReceipt,
+  RealizedSlice,
+  Transaction,
+} from "../ledger/types";
+import { computeTradeCosts, tradeValue } from "../ledger/fees";
 import {
   type PortfolioSnapshot,
   formatCurrency,
@@ -62,6 +70,16 @@ export type PortfolioSummaryInput = {
   stocks?: StockLedgerRow[];
   /** Fiscal-year tax breakdown. Empty (or absent) with no realized activity. */
   taxYears?: TaxYear[];
+  /** The raw transaction ledger, for the detailed trade log. */
+  transactions?: Transaction[];
+  /** Realized FIFO slices — per-stock sales detail and per-txn CGT. */
+  realized?: RealizedSlice[];
+  /** Dividend receipts — per-txn withholding lookup. */
+  dividends?: DividendReceipt[];
+  /** Bonus-issue tax charges — per-txn tax lookup. */
+  bonusTaxes?: BonusTaxCharge[];
+  /** Rate set, to itemize per-trade fees in the ledger. */
+  feeConfig?: FeeConfig;
 };
 
 function mdTable(headers: string[], rows: string[][]): string {
@@ -298,6 +316,8 @@ function renderStockLedger(input: PortfolioSummaryInput): string {
     s.ticker,
     s.shares.toLocaleString(),
     formatCurrency(s.avgCost),
+    formatCurrency(s.price),
+    formatCurrency(s.marketValue),
     signedCurrency(s.unrealized),
     signedCurrency(s.realized),
     formatCurrency(s.dividends),
@@ -306,6 +326,9 @@ function renderStockLedger(input: PortfolioSummaryInput): string {
     formatCurrency(s.feesPaid + s.taxesPaid),
   ]);
 
+  const totalNet = stocks.reduce((sum, s) => sum + s.totalNet, 0);
+  const totalCosts = stocks.reduce((sum, s) => sum + s.feesPaid + s.taxesPaid, 0);
+
   return [
     "## Per-stock P/L (net of fees and taxes)",
     mdTable(
@@ -313,6 +336,8 @@ function renderStockLedger(input: PortfolioSummaryInput): string {
         "Ticker",
         "Shares",
         "Avg cost",
+        "Price",
+        "Market value",
         "Unrealized",
         "Realized",
         "Dividends",
@@ -322,7 +347,174 @@ function renderStockLedger(input: PortfolioSummaryInput): string {
       ],
       rows,
     ),
+    "",
+    `**Portfolio net P/L: ${signedCurrency(totalNet)}** · total fees + taxes paid: ${formatCurrency(totalCosts)}`,
   ].join("\n");
+}
+
+/**
+ * A block per stock: the headline metrics, then that stock's realized sales.
+ * The one-row table above is the scoreboard; this is the story behind each row.
+ */
+function renderStockDetail(input: PortfolioSummaryInput): string {
+  const stocks = input.stocks ?? [];
+  if (stocks.length === 0) return "";
+
+  const salesByTicker = new Map<string, RealizedSlice[]>();
+  for (const slice of input.realized ?? []) {
+    const list = salesByTicker.get(slice.ticker) ?? [];
+    list.push(slice);
+    salesByTicker.set(slice.ticker, list);
+  }
+
+  const blocks = stocks.map((s) => {
+    const lines: string[] = [
+      `### ${s.ticker} — ${s.name}${s.isClosed ? " (closed)" : ""}`,
+      `- Sector: ${s.sector}`,
+      `- Position: ${s.shares.toLocaleString()} shares @ ${formatCurrency(s.avgCost)} avg · market ${formatCurrency(s.marketValue)} @ ${formatCurrency(s.price)}`,
+      `- Unrealized: ${signedCurrency(s.unrealized)} · net if sold today: ${signedCurrency(s.netIfSoldToday)}`,
+      `- Realized: ${signedCurrency(s.realized)} (${s.closed.count} closed lot${s.closed.count === 1 ? "" : "s"}${s.closed.count > 0 ? `, ${s.closed.winRatePct.toFixed(0)}% winners` : ""})`,
+      `- Dividends (net of WHT): ${formatCurrency(s.dividends)}`,
+      `- **Net P/L: ${signedCurrency(s.totalNet)}** (${formatSignedPercent(s.totalReturnPct, 1)} on cash invested)`,
+      `- Fees + taxes: ${formatCurrency(s.feesPaid + s.taxesPaid)} (${s.feeDragPct.toFixed(2)}% drag)`,
+      `- Held: ${s.holdingDays.toLocaleString()}d${s.firstDate ? ` since ${formatDateShort(s.firstDate)}` : ""}`,
+    ];
+
+    const sales = salesByTicker.get(s.ticker) ?? [];
+    if (sales.length > 0) {
+      const saleRows = sales
+        .slice()
+        .sort((a, b) => a.sellDate.localeCompare(b.sellDate))
+        .map((slice) => [
+          formatDateShort(slice.sellDate),
+          formatDateShort(slice.buyDate),
+          slice.shares.toLocaleString(),
+          formatCurrency(slice.proceeds),
+          formatCurrency(slice.cost),
+          signedCurrency(slice.gain),
+          `${slice.cgtRatePct}%`,
+          formatCurrency(slice.cgt),
+        ]);
+      lines.push(
+        "",
+        mdTable(
+          ["Sold", "Bought", "Shares", "Proceeds", "Cost", "Gain", "Rate", "CGT"],
+          saleRows,
+        ),
+      );
+    }
+    return lines.join("\n");
+  });
+
+  return ["## Stock detail", ...blocks].join("\n\n");
+}
+
+/**
+ * The full trade ledger — every transaction with its computed value, fees and
+ * tax, and the resulting cash movement. Mirrors the Ledger tab.
+ */
+function renderTradeLedger(input: PortfolioSummaryInput): string {
+  const txns = input.transactions ?? [];
+  if (txns.length === 0) return "";
+  const cfg = input.feeConfig;
+
+  const cgtByTxn = new Map<string, number>();
+  for (const slice of input.realized ?? []) {
+    cgtByTxn.set(slice.txnId, (cgtByTxn.get(slice.txnId) ?? 0) + slice.cgt);
+  }
+  const grossByTxn = new Map<string, number>();
+  const whtByTxn = new Map<string, number>();
+  for (const d of input.dividends ?? []) {
+    grossByTxn.set(d.txnId, d.gross);
+    whtByTxn.set(d.txnId, d.wht);
+  }
+  const bonusTaxByTxn = new Map<string, number>();
+  for (const b of input.bonusTaxes ?? []) bonusTaxByTxn.set(b.txnId, b.tax);
+
+  const sorted = [...txns].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id),
+  );
+
+  const rows = sorted.map((t) => {
+    const fees =
+      cfg && (t.type === "BUY" || t.type === "SELL")
+        ? computeTradeCosts(t.shares, t.price, cfg, t.feeOverride).total
+        : 0;
+    const cgt = cgtByTxn.get(t.id) ?? 0;
+    const wht = whtByTxn.get(t.id) ?? 0;
+    const bonusTax = bonusTaxByTxn.get(t.id) ?? 0;
+    const tax = cgt + wht + bonusTax;
+
+    return [
+      formatDateShort(t.date),
+      t.type,
+      t.ticker || "—",
+      txnQty(t),
+      t.price ? formatCurrency(t.price) : "—",
+      formatCurrency(txnValue(t, grossByTxn.get(t.id))),
+      fees ? formatCurrency(fees) : "—",
+      tax ? formatCurrency(tax) : "—",
+      signedCurrency(txnCashDelta(t, { fees, cgt, wht, bonusTax, grossByTxn })),
+      t.note || "",
+    ];
+  });
+
+  return [
+    "## Trade ledger",
+    mdTable(
+      ["Date", "Type", "Ticker", "Qty", "Price", "Value", "Fees", "Tax", "Cash Δ", "Note"],
+      rows,
+    ),
+  ].join("\n");
+}
+
+function txnQty(t: Transaction): string {
+  if (t.type === "SPLIT") return `${t.ratioFrom}:${t.ratioTo}`;
+  return t.shares ? t.shares.toLocaleString() : "—";
+}
+
+function txnValue(t: Transaction, gross?: number): number {
+  switch (t.type) {
+    case "DEPOSIT":
+    case "WITHDRAW":
+      return t.amount;
+    case "DIVIDEND":
+      return gross ?? t.amount;
+    case "SPLIT":
+      return 0;
+    default:
+      return tradeValue(t.shares, t.price);
+  }
+}
+
+function txnCashDelta(
+  t: Transaction,
+  ctx: {
+    fees: number;
+    cgt: number;
+    wht: number;
+    bonusTax: number;
+    grossByTxn: Map<string, number>;
+  },
+): number {
+  const value = tradeValue(t.shares, t.price);
+  switch (t.type) {
+    case "BUY":
+    case "RIGHT":
+      return -(value + ctx.fees);
+    case "SELL":
+      return value - ctx.fees - ctx.cgt;
+    case "DIVIDEND":
+      return (ctx.grossByTxn.get(t.id) ?? t.amount) - ctx.wht;
+    case "BONUS":
+      return -ctx.bonusTax;
+    case "DEPOSIT":
+      return t.amount;
+    case "WITHDRAW":
+      return -t.amount;
+    default:
+      return 0;
+  }
 }
 
 function renderTaxes(input: PortfolioSummaryInput): string {
@@ -381,15 +573,22 @@ export function buildPortfolioSummary(
   if (targets) sections.push(targets);
   sections.push(renderPerformance(input));
 
+  // Per-stock scoreboard appears from compact up — it's the single most useful
+  // ledger view and stays terse (one row per name).
+  const stockLedger = renderStockLedger(input);
+  if (stockLedger) sections.push(stockLedger);
+
   if (depth === "compact") {
     sections.push(renderDividends(input, 4));
     return sections.filter(Boolean).join("\n\n") + "\n";
   }
 
-  const stockLedger = renderStockLedger(input);
-  if (stockLedger) sections.push(stockLedger);
+  const stockDetail = renderStockDetail(input);
+  if (stockDetail) sections.push(stockDetail);
   const taxes = renderTaxes(input);
   if (taxes) sections.push(taxes);
+  const tradeLedger = renderTradeLedger(input);
+  if (tradeLedger) sections.push(tradeLedger);
   sections.push(renderDividends(input, 10));
   const history = renderHistory(input, 14);
   if (history) sections.push(history);

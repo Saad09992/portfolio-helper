@@ -555,6 +555,11 @@ function App() {
       twrLatest,
       stocks: ledger.stockRows,
       taxYears: ledger.taxYears,
+      transactions: ledger.transactions,
+      realized: ledger.state.realized,
+      dividends: ledger.state.dividends,
+      bonusTaxes: ledger.state.bonusTaxes,
+      feeConfig: ledger.feeConfig,
     };
   }, [
     nonCashPortfolio,
@@ -572,6 +577,9 @@ function App() {
     lastFetchedAt,
     ledger.stockRows,
     ledger.taxYears,
+    ledger.transactions,
+    ledger.state,
+    ledger.feeConfig,
   ]);
 
   const sortedHoldings = useMemo(() => {

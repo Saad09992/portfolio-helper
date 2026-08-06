@@ -13,8 +13,8 @@ type Props = {
 
 const DEPTH_OPTIONS: { value: SummaryDepth; label: string; hint: string }[] = [
   { value: "headline", label: "Headline only", hint: "Totals, P/L, top 5, performance" },
-  { value: "compact", label: "Compact", hint: "+ Holdings, sectors, targets, dividends" },
-  { value: "comprehensive", label: "Comprehensive", hint: "+ History, full ledger" },
+  { value: "compact", label: "Compact", hint: "+ Holdings, sectors, targets, per-stock P/L" },
+  { value: "comprehensive", label: "Comprehensive", hint: "+ Stock detail, trade ledger, taxes, history" },
 ];
 
 export function CopySummaryButton({ summaryInput, disabled }: Props) {

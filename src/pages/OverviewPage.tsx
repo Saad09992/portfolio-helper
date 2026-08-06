@@ -283,8 +283,12 @@ export function OverviewPage({
             </p>
           ) : (
             <>
-              {/* The reconciliation. Fees and taxes are context, NOT subtrahends:
-                  they are already deducted inside realized and dividends. */}
+              {/* The reconciliation, and it must actually reconcile — every term
+                  in `netTotal` appears here or the row reads as broken
+                  arithmetic. Brokerage and tax are NOT terms: brokerage is
+                  already inside realized, and accrued CGT is in nothing because
+                  it has not been paid. Account charges are the exception — they
+                  are real cash out and belong to no position, so they show. */}
               <div className="recon-row">
                 <div className="recon-term">
                   <span>Realized</span>
@@ -304,6 +308,15 @@ export function OverviewPage({
                   <span>Dividends</span>
                   <strong className="num">{formatCurrency(ls.dividends)}</strong>
                 </div>
+                {ls.expenses > 0 ? (
+                  <>
+                    <span className="recon-op">−</span>
+                    <div className="recon-term">
+                      <span>Charges</span>
+                      <strong className="num negative">{formatCurrency(ls.expenses)}</strong>
+                    </div>
+                  </>
+                ) : null}
                 <span className="recon-op">=</span>
                 <div className="recon-term recon-term--total">
                   <span>Net P&amp;L</span>
@@ -313,9 +326,14 @@ export function OverviewPage({
                 </div>
               </div>
               <p className="recon-note">
-                Costs are already deducted above: {formatCurrency(ls.feesPaid)} brokerage
-                and {formatCurrency(ls.taxesBooked)} tax, a {ls.feeDragPct.toFixed(2)}% drag
-                on the {formatCompactCurrency(ls.contributions)} you put in.
+                {formatCurrency(ls.feesPaid)} of brokerage is already inside
+                Realized, and with charges costs {ls.feeDragPct.toFixed(2)}% of the{" "}
+                {formatCompactCurrency(ls.contributions)} you put in.{" "}
+                {formatCurrency(ls.taxesBooked)} of tax is booked but{" "}
+                {cgtReserve > 0
+                  ? `${formatCurrency(cgtReserve)} of it is still owed`
+                  : "none of it is owed — losses cover it"}
+                , so it is not subtracted here.
               </p>
 
               <div className="kpi-grid">

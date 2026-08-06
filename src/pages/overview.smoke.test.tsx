@@ -149,8 +149,19 @@ describe("OverviewPage", () => {
     expect(html).toContain("Taxes booked");
     expect(html).toContain("Deployable cash");
     expect(html).toContain("Win rate");
-    expect(html).toContain("Costs are already deducted above");
+    expect(html).toContain("of brokerage is already inside");
     expect(html).not.toContain("NaN");
+  });
+
+  /**
+   * The strip is shown as an equation, so a term that is in `netTotal` but not
+   * on screen reads as arithmetic that does not work. Charges were once exactly
+   * that.
+   */
+  it("shows the charges term when there is one", () => {
+    const charged = { ...full, ledgerSummary: { ...full.ledgerSummary, expenses: 10_000 } };
+    expect(renderToString(<OverviewPage {...charged} />)).toContain("Charges");
+    expect(renderToString(<OverviewPage {...full} />)).not.toContain(">Charges<");
   });
 
   it("cross-links tickers into the stock detail route", () => {

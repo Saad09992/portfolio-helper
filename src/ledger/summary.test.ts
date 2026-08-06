@@ -116,6 +116,16 @@ describe("buildLedgerSummary", () => {
     );
   });
 
+  /**
+   * The Overview shows this sum as a visible equation, so any term missing from
+   * the strip reads as broken arithmetic. Charges were absent once and the row
+   * was out by exactly them.
+   */
+  it("adds up from exactly the terms the reconciliation strip shows", () => {
+    const s = buildLedgerSummary(rowsFor(), 500_000, 10_000);
+    expect(s.netTotal).toBe(s.realized + s.unrealized + s.dividends - s.expenses);
+  });
+
   it("treats account charges as a cost but not as a withdrawal of capital", () => {
     const contributions = 500_000;
     const plain = buildLedgerSummary(rowsFor(), contributions);

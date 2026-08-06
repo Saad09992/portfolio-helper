@@ -122,8 +122,17 @@ describe("buildLedgerSummary", () => {
    * was out by exactly them.
    */
   it("adds up from exactly the terms the reconciliation strip shows", () => {
-    const s = buildLedgerSummary(rowsFor(), 500_000, 10_000);
-    expect(s.netTotal).toBe(s.realized + s.unrealized + s.dividends - s.expenses);
+    const s = buildLedgerSummary(rowsFor(), 500_000, 10_000, 4_000);
+    expect(s.netTotal).toBe(
+      s.realized + s.unrealized + s.dividends - s.expenses - s.taxPaid,
+    );
+  });
+
+  it("counts tax actually paid as a cost", () => {
+    const plain = buildLedgerSummary(rowsFor(), 500_000);
+    const taxed = buildLedgerSummary(rowsFor(), 500_000, 0, 4_000);
+    expect(taxed.netTotal).toBe(plain.netTotal - 4_000);
+    expect(taxed.contributions).toBe(plain.contributions);
   });
 
   it("treats account charges as a cost but not as a withdrawal of capital", () => {

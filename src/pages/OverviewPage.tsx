@@ -317,6 +317,15 @@ export function OverviewPage({
                     </div>
                   </>
                 ) : null}
+                {ls.taxPaid > 0 ? (
+                  <>
+                    <span className="recon-op">−</span>
+                    <div className="recon-term">
+                      <span>Tax paid</span>
+                      <strong className="num negative">{formatCurrency(ls.taxPaid)}</strong>
+                    </div>
+                  </>
+                ) : null}
                 <span className="recon-op">=</span>
                 <div className="recon-term recon-term--total">
                   <span>Net P&amp;L</span>

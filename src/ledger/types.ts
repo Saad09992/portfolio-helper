@@ -238,6 +238,14 @@ export type LedgerState = {
   /** paisa — account charges booked via EXPENSE entries. A cost, not capital. */
   expenses: number;
   /**
+   * paisa — tax actually paid: CGT settlements and bonus-issue tax.
+   *
+   * Dividend withholding is NOT here — it never reaches the account, so it is
+   * already netted inside each position's `dividends`. Accrued CGT is not here
+   * either: it has not been paid, and loss set-off may mean it never is.
+   */
+  taxPaid: number;
+  /**
    * paisa — derived account cash: deposits − outflows + inflows.
    *
    * Reconciles with the broker statement. Accrued CGT is deliberately NOT

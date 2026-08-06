@@ -17,7 +17,7 @@ export type LedgerSummary = {
   dividends: number;
 
   /**
-   * paisa — realized + unrealized + dividends − expenses. THE headline.
+   * paisa — realized + unrealized + dividends − expenses − taxPaid. THE headline.
    *
    * Satisfies `contributions + netTotal === cash + market value`: everything
    * that happened to the money is in here exactly once.
@@ -32,6 +32,8 @@ export type LedgerSummary = {
 
   /** paisa — account charges: SMS, custody, maintenance, unitemised brokerage. */
   expenses: number;
+  /** paisa — tax actually paid: CGT settlements and bonus-issue tax. */
+  taxPaid: number;
 
   /** paisa — brokerage and statutory charges paid across all trades. */
   feesPaid: number;
@@ -94,6 +96,7 @@ const EMPTY: LedgerSummary = {
   returned: 0,
   contributions: 0,
   expenses: 0,
+  taxPaid: 0,
   netReturnPct: 0,
   feeDragPct: 0,
   netIfSoldToday: 0,
@@ -115,8 +118,9 @@ export function buildLedgerSummary(
   rows: StockLedgerRow[],
   contributions = 0,
   expenses = 0,
+  taxPaid = 0,
 ): LedgerSummary {
-  if (rows.length === 0) return { ...EMPTY, contributions, expenses };
+  if (rows.length === 0) return { ...EMPTY, contributions, expenses, taxPaid };
 
   let realized = 0;
   let unrealized = 0;
@@ -161,7 +165,7 @@ export function buildLedgerSummary(
     if (!worst || row.totalNet < worst.totalNet) worst = row;
   }
 
-  const netTotal = realized + unrealized + dividends - expenses;
+  const netTotal = realized + unrealized + dividends - expenses - taxPaid;
 
   const contributor = (row: StockLedgerRow | undefined) =>
     row
@@ -184,6 +188,7 @@ export function buildLedgerSummary(
     returned,
     contributions,
     expenses,
+    taxPaid,
     netReturnPct: contributions > 0 ? (netTotal / contributions) * 100 : 0,
     // Accrued CGT is excluded: it has not been paid and may never be owed.
     feeDragPct: contributions > 0 ? ((feesPaid + expenses) / contributions) * 100 : 0,

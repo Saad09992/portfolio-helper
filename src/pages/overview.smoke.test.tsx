@@ -158,10 +158,16 @@ describe("OverviewPage", () => {
    * on screen reads as arithmetic that does not work. Charges were once exactly
    * that.
    */
-  it("shows the charges term when there is one", () => {
+  it("shows the charges and tax-paid terms when there are any", () => {
     const charged = { ...full, ledgerSummary: { ...full.ledgerSummary, expenses: 10_000 } };
     expect(renderToString(<OverviewPage {...charged} />)).toContain("Charges");
-    expect(renderToString(<OverviewPage {...full} />)).not.toContain(">Charges<");
+
+    const taxed = { ...full, ledgerSummary: { ...full.ledgerSummary, taxPaid: 4_000 } };
+    expect(renderToString(<OverviewPage {...taxed} />)).toContain("Tax paid");
+
+    const clean = renderToString(<OverviewPage {...full} />);
+    expect(clean).not.toContain(">Charges<");
+    expect(clean).not.toContain(">Tax paid<");
   });
 
   it("cross-links tickers into the stock detail route", () => {

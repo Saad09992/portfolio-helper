@@ -85,6 +85,7 @@ export function replayLedger(
   let cash = 0;
   let contributions = 0;
   let expenses = 0;
+  let taxPaid = 0;
 
   const fail = (txn: Transaction, message: string) => {
     issues.push({
@@ -126,6 +127,7 @@ export function replayLedger(
       else if (type === "EXPENSE") expenses += amount;
 
       if (type === "TAX") {
+        taxPaid += amount;
         taxPayments.push({ txnId: txn.id, date: day, amount, note: txn.note ?? "" });
       }
       if (cash < 0) {
@@ -301,6 +303,9 @@ export function replayLedger(
         pos.shares += shares;
         pos.taxesPaid += tax;
         pos.invested += tax;
+        // Bonus shares enter at zero cost, so their tax appears in no position's
+        // result — it has to be booked as a cost or the money simply vanishes.
+        taxPaid += tax;
         cash -= tax;
         bonusTaxes.push({ txnId: txn.id, ticker, date: day, shares, value, tax });
         break;
@@ -346,6 +351,7 @@ export function replayLedger(
     taxPayments,
     contributions,
     expenses,
+    taxPaid,
     cash,
     issues,
   };

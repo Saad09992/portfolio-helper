@@ -56,3 +56,7 @@ Thumbs.db
 # untracked but not ignored, so a stray `git add -A` would have committed them.
 data/
 LedgerReport-*.pdf
+# Broker statement PDFs and anything the importer derives from them.
+statements/
+*-bundle.json
+statement-bundle.json

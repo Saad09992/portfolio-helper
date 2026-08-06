@@ -76,6 +76,7 @@ export function replayLedger(
   const taxPayments: LedgerState["taxPayments"] = [];
   const issues: LedgerIssue[] = [];
   let cash = 0;
+  let contributions = 0;
 
   const fail = (txn: Transaction, message: string) => {
     issues.push({
@@ -105,6 +106,8 @@ export function replayLedger(
         continue;
       }
       cash += type === "DEPOSIT" ? amount : -amount;
+      if (type === "DEPOSIT") contributions += amount;
+      else if (type === "WITHDRAW") contributions -= amount;
       if (type === "TAX") {
         taxPayments.push({ txnId: txn.id, date: day, amount, note: txn.note ?? "" });
       }
@@ -323,5 +326,14 @@ export function replayLedger(
     }
   }
 
-  return { positions, realized, dividends, bonusTaxes, taxPayments, cash, issues };
+  return {
+    positions,
+    realized,
+    dividends,
+    bonusTaxes,
+    taxPayments,
+    contributions,
+    cash,
+    issues,
+  };
 }

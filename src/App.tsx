@@ -610,8 +610,8 @@ function App() {
   );
 
   const ledgerSummary = useMemo(
-    () => buildLedgerSummary(ledger.stockRows),
-    [ledger.stockRows],
+    () => buildLedgerSummary(ledger.stockRows, ledger.state.contributions),
+    [ledger.stockRows, ledger.state.contributions],
   );
 
   /** Combined weight of the three largest positions — concentration at a glance. */

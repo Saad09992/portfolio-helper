@@ -220,6 +220,16 @@ export type LedgerState = {
   bonusTaxes: BonusTaxCharge[];
   taxPayments: TaxPayment[];
   /**
+   * paisa — capital contributed: deposits less withdrawals.
+   *
+   * The money you actually put in, and the only honest denominator for a
+   * return. Summing what every buy cost instead counts the same rupee again
+   * each time it is redeployed, which flatters a return by the number of times
+   * the portfolio turned over. A tax settlement is a cost rather than a
+   * withdrawal of capital, so it is not netted off here.
+   */
+  contributions: number;
+  /**
    * paisa — derived account cash: deposits − outflows + inflows.
    *
    * Reconciles with the broker statement. Accrued CGT is deliberately NOT

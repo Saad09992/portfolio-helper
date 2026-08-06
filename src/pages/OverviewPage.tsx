@@ -189,7 +189,7 @@ export function OverviewPage({
   /** Net P&L falls back to unrealized-only until the ledger exists. */
   const netPnl = ls.ready ? ls.netTotal : portfolio.totalGainLoss;
   const netPnlDetail = ls.ready
-    ? `${formatSignedPercent(ls.netReturnPct, 1)} on ${formatCompactCurrency(ls.invested)} invested · lifetime`
+    ? `${formatSignedPercent(ls.netReturnPct, 1)} on ${formatCompactCurrency(ls.contributions)} of capital · lifetime`
     : "Unrealized only — record trades on the Ledger tab";
 
   const deployableCash = ledgerCash - cgtReserve;
@@ -310,7 +310,7 @@ export function OverviewPage({
               <p className="recon-note">
                 Costs are already deducted above: {formatCurrency(ls.feesPaid)} brokerage
                 and {formatCurrency(ls.taxesBooked)} tax, a {ls.feeDragPct.toFixed(2)}% drag
-                on the {formatCompactCurrency(ls.invested)} you put in.
+                on the {formatCompactCurrency(ls.contributions)} you put in.
               </p>
 
               <div className="kpi-grid">
@@ -352,7 +352,7 @@ export function OverviewPage({
                   <KpiLabel label="Fees paid" info={METRIC_INFO.feesPaidTotal} />
                   <strong className="num">{formatCurrency(ls.feesPaid)}</strong>
                   <span>
-                    {ls.feeDragPct.toFixed(2)}% drag on cash invested
+                    {ls.feeDragPct.toFixed(2)}% drag on capital put in
                     <InfoTip
                       title="Fee drag"
                       what={METRIC_INFO.feeDragPortfolio.what}

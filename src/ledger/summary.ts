@@ -37,13 +37,24 @@ export type LedgerSummary = {
    */
   taxesBooked: number;
 
-  /** paisa — lifetime cash in and back out across every ticker. */
+  /**
+   * paisa — what every buy cost, and what every sale returned, summed across
+   * every ticker for all time.
+   *
+   * This is turnover, NOT capital. Selling and rebuying counts the same rupee
+   * twice, so on an account that trades often it runs to many times the money
+   * actually contributed. Never use it as the denominator of a return, and
+   * never label it "invested" in the UI — use `contributions`.
+   */
   invested: number;
   returned: number;
 
-  /** netTotal as a percent of lifetime cash invested. Whole percent. */
+  /** paisa — capital actually put in: deposits less withdrawals. */
+  contributions: number;
+
+  /** netTotal as a percent of `contributions`. Whole percent. */
   netReturnPct: number;
-  /** (fees + taxes) as a percent of lifetime cash invested. Whole percent. */
+  /** (fees + taxes) as a percent of `contributions`. Whole percent. */
   feeDragPct: number;
 
   /** paisa — unrealized less the estimated cost of liquidating everything now. */
@@ -74,6 +85,7 @@ const EMPTY: LedgerSummary = {
   taxesBooked: 0,
   invested: 0,
   returned: 0,
+  contributions: 0,
   netReturnPct: 0,
   feeDragPct: 0,
   netIfSoldToday: 0,
@@ -86,8 +98,16 @@ const EMPTY: LedgerSummary = {
   closedPositions: 0,
 };
 
-export function buildLedgerSummary(rows: StockLedgerRow[]): LedgerSummary {
-  if (rows.length === 0) return { ...EMPTY };
+/**
+ * @param contributions paisa — deposits less withdrawals, from the replay. The
+ *   denominator for every percentage here; without it a return would be
+ *   measured against turnover and shrink each time the portfolio recycles.
+ */
+export function buildLedgerSummary(
+  rows: StockLedgerRow[],
+  contributions = 0,
+): LedgerSummary {
+  if (rows.length === 0) return { ...EMPTY, contributions };
 
   let realized = 0;
   let unrealized = 0;
@@ -153,8 +173,9 @@ export function buildLedgerSummary(rows: StockLedgerRow[]): LedgerSummary {
     taxesBooked,
     invested,
     returned,
-    netReturnPct: invested > 0 ? (netTotal / invested) * 100 : 0,
-    feeDragPct: invested > 0 ? ((feesPaid + taxesBooked) / invested) * 100 : 0,
+    contributions,
+    netReturnPct: contributions > 0 ? (netTotal / contributions) * 100 : 0,
+    feeDragPct: contributions > 0 ? ((feesPaid + taxesBooked) / contributions) * 100 : 0,
     netIfSoldToday,
     closedTrades,
     wins,

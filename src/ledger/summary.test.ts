@@ -92,16 +92,34 @@ describe("buildLedgerSummary", () => {
     );
   });
 
-  it("expresses return and fee drag against lifetime cash invested", () => {
-    const s = buildLedgerSummary(rowsFor());
-    expect(s.netReturnPct).toBeCloseTo((s.netTotal / s.invested) * 100, 6);
+  it("expresses return and fee drag against capital contributed", () => {
+    const contributions = 500_000;
+    const s = buildLedgerSummary(rowsFor(), contributions);
+    expect(s.contributions).toBe(contributions);
+    expect(s.netReturnPct).toBeCloseTo((s.netTotal / contributions) * 100, 6);
     expect(s.feeDragPct).toBeCloseTo(
-      ((s.feesPaid + s.taxesBooked) / s.invested) * 100,
+      ((s.feesPaid + s.taxesBooked) / contributions) * 100,
       6,
     );
-    // Fee drag on a handful of round-trips should be small but real.
     expect(s.feeDragPct).toBeGreaterThan(0);
-    expect(s.feeDragPct).toBeLessThan(5);
+  });
+
+  /**
+   * `invested` sums what every buy cost, so recycling the same money inflates
+   * it without any new capital arriving. Dividing by it would shrink a return
+   * in proportion to how often the account trades.
+   */
+  it("does not measure return against turnover", () => {
+    const contributions = 500_000;
+    const s = buildLedgerSummary(rowsFor(), contributions);
+    expect(s.invested).toBeGreaterThan(contributions);
+    expect(s.netReturnPct).not.toBeCloseTo((s.netTotal / s.invested) * 100, 6);
+  });
+
+  it("reports zero percentages rather than dividing by no capital", () => {
+    const s = buildLedgerSummary(rowsFor(), 0);
+    expect(s.netReturnPct).toBe(0);
+    expect(s.feeDragPct).toBe(0);
   });
 
   it("still reconciles on a partially-sold position", () => {

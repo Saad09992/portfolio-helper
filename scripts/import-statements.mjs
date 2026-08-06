@@ -420,7 +420,11 @@ function main(argv) {
         type: "EXPENSE",
         ticker: "", name: "", sector: "",
         shares: 0, price: 0, amount: shortfall,
-        note: "account charges not itemised on any statement",
+        // Whatever the trades and the known capital cannot account for. Usually
+        // charges no statement itemised, but it also absorbs any cash the broker
+        // holds back from trading — which is not a cost, so a large figure here
+        // is worth splitting before reading it as fee drag.
+        note: "unreconciled — unitemised charges and any broker-held cash",
       });
     } else if (shortfall < 0) {
       onWarn(

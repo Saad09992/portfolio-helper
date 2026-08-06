@@ -314,7 +314,10 @@ function main(argv) {
   const capital = capIdx >= 0 ? money(args[capIdx + 1]) : null;
   const cfgIdx = args.findIndex((a) => a === "--config");
   const lossIdx = args.findIndex((a) => a === "--opening-loss");
-  const consumed = new Set([outIdx + 1, cashIdx + 1, cfgIdx + 1, lossIdx + 1, capIdx + 1]);
+  const invIdx = args.findIndex((a) => a === "--investments");
+  const consumed = new Set([
+    outIdx + 1, cashIdx + 1, cfgIdx + 1, lossIdx + 1, capIdx + 1, invIdx + 1,
+  ]);
   const dir = args.find((a, i) => !a.startsWith("-") && !consumed.has(i)) ?? "statements";
 
   const securities = loadSecurities("data/psx-stocks.db");
@@ -477,6 +480,24 @@ function main(argv) {
 
   const bundle = { version: SCHEMA_VERSION, transactions: ordered };
   if (feeConfig) bundle.feeConfig = feeConfig;
+
+  // Contributions come from the Invest tab, so a correction there has to travel
+  // with the trades or the two disagree about how much capital exists. Fields
+  // the bundle omits are left alone on import — holdings and daily snapshots in
+  // particular survive untouched.
+  if (invIdx >= 0) {
+    const entries = JSON.parse(readFileSync(args[invIdx + 1], "utf8"));
+    bundle.investments = entries;
+    const total = entries.reduce((sum, e) => sum + Number(e.amount ?? 0), 0);
+    console.log(`  investments: ${entries.length} entries, ${rupees(total)} contributed`);
+    if (capital != null && total !== capital) {
+      onWarn(
+        `--capital ${rupees(capital)} disagrees with the Invest tab total ${rupees(total)}; ` +
+          `the app derives contributions from the Invest tab, so it will use ${rupees(total)}.`,
+      );
+    }
+  }
+
   writeFileSync(out, JSON.stringify(bundle, null, 2));
 
   console.log(`\n${ordered.length} transactions -> ${out}`);

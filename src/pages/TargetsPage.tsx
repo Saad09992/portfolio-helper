@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { DerivedHolding, RebalanceCadence, SectorBucket } from "../types";
 import type { TargetRow } from "../derivedTypes";
 import { DRIFT } from "../constants";
+import { useTableView } from "../hooks/useTableView";
+import type { TableSpec } from "../table/tableView";
 import { formatCurrency, formatPercent } from "../utils";
 import { Combobox } from "../components/ui/Combobox";
 import { ChipGroup } from "../components/ui/ChipGroup";
+import { Pagination } from "../components/ui/Pagination";
+import { SortHeader } from "../components/ui/SortHeader";
 import { CadenceBadge } from "../components/CadenceBadge";
 import { ActionRow } from "../components/ActionRow";
 import { StatCard } from "../components/ui/StatCard";
@@ -22,7 +26,38 @@ type DraftTarget = {
 type StatusFilter = "all" | "over" | "under" | "ontrack" | "due";
 type ModeCoverage = { sum: number; untargeted: number; count: number };
 type SortKey = "key" | "mode" | "current" | "target" | "drift" | "gap";
-type SortState = { key: SortKey; dir: "asc" | "desc" };
+
+/**
+ * Two-state sort, not three.
+ *
+ * `allowUnsorted: false` because the default drift-descending order is the point
+ * of this table — the worst drift belongs at the top. A third "unsorted" state
+ * would just mean "arbitrary" here.
+ */
+const TARGET_SPEC: TableSpec<TargetRow, SortKey> = {
+  columns: [
+    { key: "key", label: "Key", value: (r) => r.key, defaultDir: "asc" },
+    { key: "mode", label: "Mode", value: (r) => r.mode, defaultDir: "asc" },
+    { key: "current", label: "Current", value: (r) => r.currentWeight, align: "right" },
+    { key: "target", label: "Target", value: (r) => r.targetWeight, align: "right" },
+    { key: "drift", label: "Drift", value: (r) => r.absDrift, align: "right" },
+    // Ranked by magnitude: which action is biggest, regardless of direction.
+    { key: "gap", label: "Action", value: (r) => Math.abs(r.gapValue), align: "right" },
+  ],
+  search: (r) => [r.key, r.mode],
+  allowUnsorted: false,
+};
+
+/** Status predicates, carried over verbatim from the hand-rolled filter. */
+function statusPredicates(status: StatusFilter) {
+  if (status === "all") return [];
+  if (status === "over") return [(r: TargetRow) => r.drift > DRIFT.COUNT_THRESHOLD];
+  if (status === "under") return [(r: TargetRow) => r.drift < -DRIFT.COUNT_THRESHOLD];
+  if (status === "due") {
+    return [(r: TargetRow) => r.cadenceState === "due" || r.cadenceState === "overdue"];
+  }
+  return [(r: TargetRow) => Math.abs(r.drift) <= DRIFT.COUNT_THRESHOLD];
+}
 
 export type TargetsPageProps = {
   targetDraft: DraftTarget;
@@ -39,10 +74,6 @@ export type TargetsPageProps = {
     due: number;
     totalDeviation: number;
   };
-  targetStatusFilter: StatusFilter;
-  setTargetStatusFilter: (s: StatusFilter) => void;
-  targetFilter: string;
-  setTargetFilter: (s: string) => void;
   markTargetRebalanced: (id: string) => void;
   removeTarget: (id: string) => void;
   updateTargetThreshold: (
@@ -110,10 +141,6 @@ export function TargetsPage({
   holdings,
   targetRows,
   driftSummary,
-  targetStatusFilter,
-  setTargetStatusFilter,
-  targetFilter,
-  setTargetFilter,
   markTargetRebalanced,
   removeTarget,
   updateTargetThreshold,
@@ -136,7 +163,6 @@ export function TargetsPage({
   const [donutMode, setDonutMode] = useState<"sector" | "ticker">(
     hasSectorTargets || !hasTickerTargets ? "sector" : "ticker",
   );
-  const [sort, setSort] = useState<SortState>({ key: "drift", dir: "desc" });
   const [presetName, setPresetName] = useState("");
   const [formOpen, setFormOpen] = useState(targetRows.length === 0);
 
@@ -144,41 +170,18 @@ export function TargetsPage({
   const totalTargets = coverage.sector.count + coverage.ticker.count;
   const overAllocated = activeCoverage.sum > 1.0001;
 
-  function toggleSort(key: SortKey) {
-    setSort((prev) =>
-      prev.key === key
-        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: key === "key" || key === "mode" ? "asc" : "desc" },
-    );
-  }
+  const toPredicates = useCallback(
+    (filters: Record<string, string>) =>
+      statusPredicates((filters.status as StatusFilter) ?? "all"),
+    [],
+  );
 
-  const visibleRows = targetRows
-    .filter((row) => !targetFilter || row.key.toLowerCase().includes(targetFilter.toLowerCase()))
-    .filter((row) => {
-      if (targetStatusFilter === "all") return true;
-      if (targetStatusFilter === "over") return row.drift > DRIFT.COUNT_THRESHOLD;
-      if (targetStatusFilter === "under") return row.drift < -DRIFT.COUNT_THRESHOLD;
-      if (targetStatusFilter === "due")
-        return row.cadenceState === "due" || row.cadenceState === "overdue";
-      return Math.abs(row.drift) <= DRIFT.COUNT_THRESHOLD;
-    })
-    .sort((a, b) => {
-      const dir = sort.dir === "asc" ? 1 : -1;
-      switch (sort.key) {
-        case "key":
-          return a.key.localeCompare(b.key) * dir;
-        case "mode":
-          return a.mode.localeCompare(b.mode) * dir;
-        case "current":
-          return (a.currentWeight - b.currentWeight) * dir;
-        case "target":
-          return (a.targetWeight - b.targetWeight) * dir;
-        case "gap":
-          return (Math.abs(a.gapValue) - Math.abs(b.gapValue)) * dir;
-        default:
-          return (a.absDrift - b.absDrift) * dir;
-      }
-    });
+  const view = useTableView<TargetRow, SortKey>(targetRows, TARGET_SPEC, {
+    defaultSort: { key: "drift", dir: "desc" },
+    filters: { keys: ["status"], toPredicates },
+  });
+
+  const statusFilter = (view.filters.status as StatusFilter) ?? "all";
 
   async function copyPlan() {
     try {
@@ -197,9 +200,6 @@ export function TargetsPage({
     a.click();
     URL.revokeObjectURL(url);
   }
-
-  const arrowFor = (key: SortKey) =>
-    sort.key === key ? (sort.dir === "asc" ? " ▲" : " ▼") : "";
 
   // Cash-aware funding: buys are funded by available cash + proceeds from sells.
   // Allocate greedily to the largest drifts first; the rest is deferred.
@@ -591,8 +591,8 @@ export function TargetsPage({
           <div className="drift-controls">
             <ChipGroup
               ariaLabel="Drift status filter"
-              value={targetStatusFilter}
-              onChange={setTargetStatusFilter}
+              value={statusFilter}
+              onChange={(next) => view.setFilter("status", next === "all" ? null : next)}
               options={[
                 { value: "all", label: "All" },
                 { value: "over", label: "Over" },
@@ -601,14 +601,12 @@ export function TargetsPage({
                 { value: "due", label: "Due" },
               ]}
             />
-            {targetRows.length > 3 && (
-              <input
-                className="target-filter"
-                value={targetFilter}
-                onChange={(e) => setTargetFilter(e.target.value)}
-                placeholder="Search..."
-              />
-            )}
+            <input
+              className="table-search"
+              value={view.query}
+              onChange={(e) => view.setQuery(e.target.value)}
+              placeholder="Search..."
+            />
           </div>
         )}
 
@@ -619,36 +617,16 @@ export function TargetsPage({
             <table className="target-table">
               <thead>
                 <tr>
-                  <th className="sortable">
-                    <button type="button" className="sort-btn" onClick={() => toggleSort("key")}>
-                      Key<span className="sort-arrow">{arrowFor("key")}</span>
-                    </button>
-                  </th>
-                  <th className="sortable">
-                    <button type="button" className="sort-btn" onClick={() => toggleSort("mode")}>
-                      Mode<span className="sort-arrow">{arrowFor("mode")}</span>
-                    </button>
-                  </th>
-                  <th className="right sortable">
-                    <button type="button" className="sort-btn" onClick={() => toggleSort("current")}>
-                      Current<span className="sort-arrow">{arrowFor("current")}</span>
-                    </button>
-                  </th>
-                  <th className="right sortable">
-                    <button type="button" className="sort-btn" onClick={() => toggleSort("target")}>
-                      Target<span className="sort-arrow">{arrowFor("target")}</span>
-                    </button>
-                  </th>
-                  <th className="right sortable">
-                    <button type="button" className="sort-btn" onClick={() => toggleSort("drift")}>
-                      Drift<span className="sort-arrow">{arrowFor("drift")}</span>
-                    </button>
-                  </th>
-                  <th className="right sortable">
-                    <button type="button" className="sort-btn" onClick={() => toggleSort("gap")}>
-                      Action<span className="sort-arrow">{arrowFor("gap")}</span>
-                    </button>
-                  </th>
+                  {TARGET_SPEC.columns.map((column) => (
+                    <SortHeader
+                      key={column.key}
+                      label={column.label}
+                      sortKey={column.key}
+                      sort={view.sort}
+                      onClick={view.toggleSort}
+                      align={column.align}
+                    />
+                  ))}
                   <th className="right">Warn %</th>
                   <th className="right">Crit %</th>
                   <th>Cadence</th>
@@ -657,7 +635,14 @@ export function TargetsPage({
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row) => {
+                {view.rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="empty-state">
+                      No matches.
+                    </td>
+                  </tr>
+                ) : (
+                view.rows.map((row) => {
                   const warnPctValue = (row.warnThreshold * 100).toFixed(1);
                   const criticalPctValue = (row.criticalThreshold * 100).toFixed(1);
                   return (
@@ -776,11 +761,26 @@ export function TargetsPage({
                       </td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>
         )}
+
+        {targetRows.length > 0 ? (
+          <Pagination
+            label="Targets"
+            page={view.page}
+            pageCount={view.pageCount}
+            pageSize={view.pageSize}
+            from={view.from}
+            to={view.to}
+            total={view.total}
+            onPage={view.setPage}
+            onPageSize={view.setPageSize}
+          />
+        ) : null}
       </article>
     </div>
   );

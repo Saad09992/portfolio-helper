@@ -1,9 +1,17 @@
 import { useMemo, useState } from "react";
-import type { LedgerState, Transaction } from "../ledger/types";
+import type { LedgerState, RealizedSlice, Transaction } from "../ledger/types";
 import type { StockLedgerRow } from "../ledger/perStock";
+import type { TableStore } from "../hooks/useTableView";
+import { useTableView } from "../hooks/useTableView";
+import { TABLE } from "../constants";
 import { METRIC_INFO } from "../metricInfo";
 import { pageHref, stockHref } from "../routes";
+import type { ChipOption } from "../components/ui/ChipGroup";
+import { ChipGroup } from "../components/ui/ChipGroup";
 import { InfoTip } from "../components/ui/InfoTip";
+import { Pagination } from "../components/ui/Pagination";
+import { SortHeader } from "../components/ui/SortHeader";
+import type { TableSpec } from "../table/tableView";
 import {
   formatCompactCurrency,
   formatCurrency,
@@ -21,6 +29,137 @@ export type StocksPageProps = {
    */
   selected?: string | null;
   onSelect?: (ticker: string | null) => void;
+  /** Omit and the table's view state stays local instead of in the URL. */
+  tableStore?: TableStore;
+};
+
+type StockSortKey =
+  | "ticker"
+  | "shares"
+  | "avgCost"
+  | "price"
+  | "marketValue"
+  | "unrealized"
+  | "realized"
+  | "dividends"
+  | "totalNet"
+  | "totalReturnPct"
+  | "feeDragPct";
+
+/** Module-level: closes over nothing, so it stays referentially stable. */
+const STOCK_SPEC: TableSpec<StockLedgerRow, StockSortKey> = {
+  columns: [
+    { key: "ticker", label: "Ticker", value: (r) => r.ticker, defaultDir: "asc" },
+    { key: "shares", label: "Shares", value: (r) => r.shares || null, align: "right" },
+    { key: "avgCost", label: "Avg cost", value: (r) => r.avgCost || null, align: "right" },
+    { key: "price", label: "Price", value: (r) => r.price || null, align: "right" },
+    { key: "marketValue", label: "Market value", value: (r) => r.marketValue, align: "right" },
+    { key: "unrealized", label: "Unrealized", value: (r) => r.unrealized, align: "right" },
+    { key: "realized", label: "Realized", value: (r) => r.realized, align: "right" },
+    { key: "dividends", label: "Dividends", value: (r) => r.dividends, align: "right" },
+    { key: "totalNet", label: "Net P&L", value: (r) => r.totalNet, align: "right" },
+    { key: "totalReturnPct", label: "Return", value: (r) => r.totalReturnPct, align: "right" },
+    { key: "feeDragPct", label: "Fee drag", value: (r) => r.feeDragPct, align: "right" },
+  ],
+  // Name and sector aren't columns but are worth searching — a superset of the
+  // visible fields is the point of a search box.
+  search: (r) => [r.ticker, r.name, r.sector],
+};
+
+const POSITION_OPTIONS: readonly ChipOption<"all" | "open" | "closed">[] = [
+  { value: "all", label: "All" },
+  { value: "open", label: "Open" },
+  { value: "closed", label: "Closed" },
+];
+
+function stockPredicates(filters: Record<string, string>) {
+  if (filters.pos === "open") return [(r: StockLedgerRow) => !r.isClosed];
+  if (filters.pos === "closed") return [(r: StockLedgerRow) => r.isClosed];
+  return [];
+}
+
+const STOCK_FILTERS = {
+  keys: ["pos"] as const,
+  toPredicates: stockPredicates,
+};
+
+// ── Stock detail sub-tables ──────────────────────────────────────────────────
+// All local state: a URL param per nested table would be param soup, and these
+// are scoped to whichever stock is open.
+
+/** A lot plus the derived columns the table shows, so sorting can reach them. */
+type LotRow = {
+  key: string;
+  date: string;
+  shares: number;
+  cost: number;
+  costPerShare: number;
+  value: number;
+  unrealized: number;
+};
+
+type LotSortKey = "date" | "shares" | "cost" | "costPerShare" | "value" | "unrealized";
+
+const LOT_SPEC: TableSpec<LotRow, LotSortKey> = {
+  columns: [
+    // FIFO order is information, so acquisition date ascending is the default.
+    { key: "date", label: "Acquired", value: (r) => r.date, defaultDir: "asc" },
+    { key: "shares", label: "Shares", value: (r) => r.shares, align: "right" },
+    { key: "cost", label: "Cost", value: (r) => r.cost, align: "right" },
+    { key: "costPerShare", label: "Cost / share", value: (r) => r.costPerShare, align: "right" },
+    { key: "value", label: "Value now", value: (r) => r.value, align: "right" },
+    { key: "unrealized", label: "Unrealized", value: (r) => r.unrealized, align: "right" },
+  ],
+};
+
+type DetailSaleSortKey =
+  | "sellDate"
+  | "buyDate"
+  | "shares"
+  | "proceeds"
+  | "cost"
+  | "fees"
+  | "gain"
+  | "cgt";
+
+const DETAIL_SALES_SPEC: TableSpec<RealizedSlice, DetailSaleSortKey> = {
+  columns: [
+    { key: "sellDate", label: "Sold", value: (r) => r.sellDate },
+    { key: "buyDate", label: "Bought", value: (r) => r.buyDate },
+    { key: "shares", label: "Shares", value: (r) => r.shares, align: "right" },
+    { key: "proceeds", label: "Proceeds", value: (r) => r.proceeds, align: "right" },
+    { key: "cost", label: "Cost", value: (r) => r.cost, align: "right" },
+    { key: "fees", label: "Fees", value: (r) => r.fees, align: "right" },
+    { key: "gain", label: "Gain", value: (r) => r.gain, align: "right" },
+    { key: "cgt", label: "CGT", value: (r) => r.cgt, align: "right" },
+  ],
+};
+
+const OUTCOME_OPTIONS: readonly ChipOption<"all" | "gains" | "losses">[] = [
+  { value: "all", label: "All" },
+  { value: "gains", label: "Gains" },
+  { value: "losses", label: "Losses" },
+];
+
+const DETAIL_SALES_FILTERS = {
+  keys: ["out"] as const,
+  toPredicates: (filters: Record<string, string>) => {
+    if (filters.out === "gains") return [(r: RealizedSlice) => r.gain > 0];
+    if (filters.out === "losses") return [(r: RealizedSlice) => r.gain < 0];
+    return [];
+  },
+};
+
+type EntrySortKey = "date" | "type" | "shares" | "price";
+
+const ENTRY_SPEC: TableSpec<Transaction, EntrySortKey> = {
+  columns: [
+    { key: "date", label: "Date", value: (r) => r.date },
+    { key: "type", label: "Type", value: (r) => r.type, defaultDir: "asc" },
+    { key: "shares", label: "Shares", value: (r) => r.shares || null, align: "right" },
+    { key: "price", label: "Price", value: (r) => r.price || null, align: "right" },
+  ],
+  search: (r) => [r.type, r.note, r.date],
 };
 
 const signed = (paisa: number) =>
@@ -34,10 +173,18 @@ export function StocksPage({
   transactions,
   selected: selectedProp,
   onSelect,
+  tableStore,
 }: StocksPageProps) {
   const [localSelected, setLocalSelected] = useState<string | null>(null);
   const selected = selectedProp !== undefined ? selectedProp : localSelected;
   const select = onSelect ?? setLocalSelected;
+
+  const view = useTableView<StockLedgerRow, StockSortKey>(stockRows, STOCK_SPEC, {
+    store: tableStore,
+    ns: "s",
+    defaultSort: { key: "totalNet", dir: "desc" },
+    filters: STOCK_FILTERS,
+  });
 
   const active =
     stockRows.find((row) => row.ticker === (selected ?? "").toUpperCase()) ?? null;
@@ -88,25 +235,52 @@ export function StocksPage({
           <span className="panel-meta">Net of fees, CGT and withholding</span>
         </div>
 
+        <div className="table-controls table-controls--stacked">
+          <input
+            type="text"
+            className="table-search"
+            placeholder="Search ticker, name, sector..."
+            value={view.query}
+            onChange={(e) => view.setQuery(e.target.value)}
+          />
+          <ChipGroup
+            options={POSITION_OPTIONS}
+            value={(view.filters.pos as "all" | "open" | "closed") ?? "all"}
+            onChange={(next) => view.setFilter("pos", next === "all" ? null : next)}
+            ariaLabel="Filter by position status"
+          />
+          {view.active ? (
+            <span className="panel-meta">
+              {view.total} of {view.sourceTotal} stocks
+            </span>
+          ) : null}
+        </div>
+
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Ticker</th>
-                <th className="right">Shares</th>
-                <th className="right">Avg cost</th>
-                <th className="right">Price</th>
-                <th className="right">Market value</th>
-                <th className="right">Unrealized</th>
-                <th className="right">Realized</th>
-                <th className="right">Dividends</th>
-                <th className="right">Net P&amp;L</th>
-                <th className="right">Return</th>
-                <th className="right">Fee drag</th>
+                {STOCK_SPEC.columns.map((column) => (
+                  <SortHeader
+                    key={column.key}
+                    label={column.label}
+                    sortKey={column.key}
+                    sort={view.sort}
+                    onClick={view.toggleSort}
+                    align={column.align}
+                  />
+                ))}
               </tr>
             </thead>
             <tbody>
-              {stockRows.map((row) => (
+              {view.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={11} className="empty-state">
+                    No matches.
+                  </td>
+                </tr>
+              ) : (
+                view.rows.map((row) => (
                 <tr
                   key={row.ticker}
                   className="stock-row"
@@ -135,10 +309,23 @@ export function StocksPage({
                   </td>
                   <td className="right num">{row.feeDragPct.toFixed(2)}%</td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          label="Profit and loss by stock"
+          page={view.page}
+          pageCount={view.pageCount}
+          pageSize={view.pageSize}
+          from={view.from}
+          to={view.to}
+          total={view.total}
+          onPage={view.setPage}
+          onPageSize={view.setPageSize}
+        />
       </section>
     </>
   );
@@ -169,6 +356,42 @@ function StockDetail({
         .sort((a, b) => b.date.localeCompare(a.date)),
     [transactions, row.ticker],
   );
+
+  // The derived lot columns are computed once so sorting and rendering agree.
+  const lotRows = useMemo<LotRow[]>(
+    () =>
+      (position?.lots ?? []).map((lot, i) => {
+        const value = lot.shares * row.price;
+        return {
+          key: `${lot.txnId}-${i}`,
+          date: lot.date,
+          shares: lot.shares,
+          cost: lot.cost,
+          costPerShare: Math.round(lot.cost / Math.max(1, lot.shares)),
+          value,
+          unrealized: value - lot.cost,
+        };
+      }),
+    [position?.lots, row.price],
+  );
+
+  const lotsView = useTableView<LotRow, LotSortKey>(lotRows, LOT_SPEC, {
+    defaultSort: { key: "date", dir: "asc" },
+    pageSize: TABLE.DETAIL_PAGE_SIZE,
+    resetKey: row.ticker,
+  });
+
+  const salesView = useTableView<RealizedSlice, DetailSaleSortKey>(sales, DETAIL_SALES_SPEC, {
+    defaultSort: { key: "sellDate", dir: "desc" },
+    filters: DETAIL_SALES_FILTERS,
+    pageSize: TABLE.DETAIL_PAGE_SIZE,
+    resetKey: row.ticker,
+  });
+
+  const entriesView = useTableView<Transaction, EntrySortKey>(entries, ENTRY_SPEC, {
+    defaultSort: { key: "date", dir: "desc" },
+    resetKey: row.ticker,
+  });
 
   return (
     <section className="panel stock-detail">
@@ -254,120 +477,205 @@ function StockDetail({
         </div>
       </div>
 
-      {position && position.lots.length > 0 ? (
+      {/* Gated on the unfiltered lots, so narrowing the view can never make the
+          panel vanish and read as lost data. */}
+      {lotRows.length > 0 ? (
         <>
           <h3 className="settings-group-title">Open lots</h3>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Acquired</th>
-                  <th className="right">Shares</th>
-                  <th className="right">Cost</th>
-                  <th className="right">Cost / share</th>
-                  <th className="right">Value now</th>
-                  <th className="right">Unrealized</th>
+                  {LOT_SPEC.columns.map((column) => (
+                    <SortHeader
+                      key={column.key}
+                      label={column.label}
+                      sortKey={column.key}
+                      sort={lotsView.sort}
+                      onClick={lotsView.toggleSort}
+                      align={column.align}
+                    />
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {position.lots.map((lot, i) => {
-                  const value = lot.shares * row.price;
-                  return (
-                    <tr key={`${lot.txnId}-${i}`}>
-                      <td>{formatDateShort(lot.date)}</td>
-                      <td className="right num">{lot.shares.toLocaleString()}</td>
-                      <td className="right num">{formatCurrency(lot.cost)}</td>
-                      <td className="right num">
-                        {formatCurrency(Math.round(lot.cost / Math.max(1, lot.shares)))}
-                      </td>
-                      <td className="right num">{formatCurrency(value)}</td>
-                      <td className={`right num ${tone(value - lot.cost)}`}>
-                        {signed(value - lot.cost)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      ) : null}
-
-      {sales.length > 0 ? (
-        <>
-          <h3 className="settings-group-title">Realized sales</h3>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Sold</th>
-                  <th>Bought</th>
-                  <th className="right">Shares</th>
-                  <th className="right">Proceeds</th>
-                  <th className="right">Cost</th>
-                  <th className="right">Fees</th>
-                  <th className="right">Gain</th>
-                  <th className="right">CGT</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sales.map((slice, i) => (
-                  <tr key={`${slice.txnId}-${i}`}>
-                    <td>{formatDateShort(slice.sellDate)}</td>
-                    <td>{formatDateShort(slice.buyDate)}</td>
-                    <td className="right num">{slice.shares.toLocaleString()}</td>
-                    <td className="right num">{formatCurrency(slice.proceeds)}</td>
-                    <td className="right num">{formatCurrency(slice.cost)}</td>
-                    <td className="right num">{formatCurrency(slice.fees)}</td>
-                    <td className={`right num ${tone(slice.gain)}`}>{signed(slice.gain)}</td>
-                    <td className="right num">
-                      {formatCurrency(slice.cgt)}
-                      <br />
-                      <small>@ {slice.cgtRatePct}%</small>
+                {lotsView.rows.map((lot) => (
+                  <tr key={lot.key}>
+                    <td>{formatDateShort(lot.date)}</td>
+                    <td className="right num">{lot.shares.toLocaleString()}</td>
+                    <td className="right num">{formatCurrency(lot.cost)}</td>
+                    <td className="right num">{formatCurrency(lot.costPerShare)}</td>
+                    <td className="right num">{formatCurrency(lot.value)}</td>
+                    <td className={`right num ${tone(lot.unrealized)}`}>
+                      {signed(lot.unrealized)}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          <Pagination
+            label="Open lots"
+            page={lotsView.page}
+            pageCount={lotsView.pageCount}
+            pageSize={lotsView.pageSize}
+            from={lotsView.from}
+            to={lotsView.to}
+            total={lotsView.total}
+            onPage={lotsView.setPage}
+            onPageSize={lotsView.setPageSize}
+            minRows={TABLE.DETAIL_PAGE_SIZE}
+          />
+        </>
+      ) : null}
+
+      {/* Gated on the unfiltered sales, for the same reason as the lots above. */}
+      {sales.length > 0 ? (
+        <>
+          <h3 className="settings-group-title">Realized sales</h3>
+          {sales.length > 1 ? (
+            <div className="table-controls">
+              <ChipGroup
+                options={OUTCOME_OPTIONS}
+                value={(salesView.filters.out as "all" | "gains" | "losses") ?? "all"}
+                onChange={(next) => salesView.setFilter("out", next === "all" ? null : next)}
+                ariaLabel="Filter sales by outcome"
+              />
+            </div>
+          ) : null}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {DETAIL_SALES_SPEC.columns.map((column) => (
+                    <SortHeader
+                      key={column.key}
+                      label={column.label}
+                      sortKey={column.key}
+                      sort={salesView.sort}
+                      onClick={salesView.toggleSort}
+                      align={column.align}
+                    />
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {salesView.rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="empty-state">
+                      No matches.
+                    </td>
+                  </tr>
+                ) : (
+                  salesView.rows.map((slice, i) => (
+                    <tr key={`${slice.txnId}-${i}`}>
+                      <td>{formatDateShort(slice.sellDate)}</td>
+                      <td>{formatDateShort(slice.buyDate)}</td>
+                      <td className="right num">{slice.shares.toLocaleString()}</td>
+                      <td className="right num">{formatCurrency(slice.proceeds)}</td>
+                      <td className="right num">{formatCurrency(slice.cost)}</td>
+                      <td className="right num">{formatCurrency(slice.fees)}</td>
+                      <td className={`right num ${tone(slice.gain)}`}>{signed(slice.gain)}</td>
+                      <td className="right num">
+                        {formatCurrency(slice.cgt)}
+                        <br />
+                        <small>@ {slice.cgtRatePct}%</small>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            label="Realized sales"
+            page={salesView.page}
+            pageCount={salesView.pageCount}
+            pageSize={salesView.pageSize}
+            from={salesView.from}
+            to={salesView.to}
+            total={salesView.total}
+            onPage={salesView.setPage}
+            onPageSize={salesView.setPageSize}
+            minRows={TABLE.DETAIL_PAGE_SIZE}
+          />
         </>
       ) : null}
 
       <h3 className="settings-group-title">Ledger entries</h3>
+      {entries.length > 1 ? (
+        <div className="table-controls">
+          <input
+            type="text"
+            className="table-search"
+            placeholder="Search type, note, date..."
+            value={entriesView.query}
+            onChange={(e) => entriesView.setQuery(e.target.value)}
+          />
+        </div>
+      ) : null}
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Type</th>
-              <th className="right">Shares</th>
-              <th className="right">Price</th>
+              {ENTRY_SPEC.columns.map((column) => (
+                <SortHeader
+                  key={column.key}
+                  label={column.label}
+                  sortKey={column.key}
+                  sort={entriesView.sort}
+                  onClick={entriesView.toggleSort}
+                  align={column.align}
+                />
+              ))}
               <th>Note</th>
             </tr>
           </thead>
           <tbody>
-            {entries.map((txn) => (
-              <tr key={txn.id}>
-                <td>{formatDateShort(txn.date)}</td>
-                <td>
-                  <span className={`txn-tag txn-tag--${txn.type.toLowerCase()}`}>
-                    {txn.type}
-                  </span>
+            {entriesView.rows.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="empty-state">
+                  No matches.
                 </td>
-                <td className="right num">
-                  {txn.type === "SPLIT"
-                    ? `${txn.ratioFrom}:${txn.ratioTo}`
-                    : txn.shares
-                      ? txn.shares.toLocaleString()
-                      : "—"}
-                </td>
-                <td className="right num">{txn.price ? formatCurrency(txn.price) : "—"}</td>
-                <td>{txn.note}</td>
               </tr>
-            ))}
+            ) : (
+              entriesView.rows.map((txn) => (
+                <tr key={txn.id}>
+                  <td>{formatDateShort(txn.date)}</td>
+                  <td>
+                    <span className={`txn-tag txn-tag--${txn.type.toLowerCase()}`}>
+                      {txn.type}
+                    </span>
+                  </td>
+                  <td className="right num">
+                    {txn.type === "SPLIT"
+                      ? `${txn.ratioFrom}:${txn.ratioTo}`
+                      : txn.shares
+                        ? txn.shares.toLocaleString()
+                        : "—"}
+                  </td>
+                  <td className="right num">{txn.price ? formatCurrency(txn.price) : "—"}</td>
+                  <td>{txn.note}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        label="Stock ledger entries"
+        page={entriesView.page}
+        pageCount={entriesView.pageCount}
+        pageSize={entriesView.pageSize}
+        from={entriesView.from}
+        to={entriesView.to}
+        total={entriesView.total}
+        onPage={entriesView.setPage}
+        onPageSize={entriesView.setPageSize}
+      />
     </section>
   );
 }

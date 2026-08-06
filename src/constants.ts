@@ -1,5 +1,6 @@
 // Centralized tuning knobs. Group by domain.
 
+import { ALL_ROWS } from "./table/tableView";
 import type { RebalanceCadence } from "./types";
 
 export const DRIFT = {
@@ -36,6 +37,23 @@ export const UI_LIMITS = {
    * `replaceState` to roughly 100 calls per 30 seconds.
    */
   SEARCH_URL_DEBOUNCE_MS: 300,
+} as const;
+
+export const TABLE = {
+  /** Rows per page before the user changes it. 357 ledger entries → 8 pages. */
+  DEFAULT_PAGE_SIZE: 50,
+  /** Compact default for the sub-tables inside the stock detail panel. */
+  DETAIL_PAGE_SIZE: 10,
+  /**
+   * Row-count options offered in the pager. `ALL_ROWS` (-1) is the escape hatch
+   * that restores the scan-the-whole-thing / Ctrl-F workflow.
+   */
+  PAGE_SIZES: [25, 50, 100, ALL_ROWS] as const,
+  /**
+   * Below this many matching rows the pager renders nothing at all — a six-row
+   * Holdings table has no business showing paging chrome.
+   */
+  PAGER_MIN_ROWS: 25,
 } as const;
 
 export const PERSISTENCE = {

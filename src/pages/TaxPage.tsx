@@ -1,8 +1,16 @@
 import { useState } from "react";
+import type { DividendReceipt, RealizedSlice } from "../ledger/types";
 import type { TaxYear } from "../ledger/tax";
 import { LOSS_CARRY_FORWARD_YEARS } from "../ledger/tax";
+import type { TableStore } from "../hooks/useTableView";
+import { useTableView } from "../hooks/useTableView";
 import { METRIC_INFO } from "../metricInfo";
+import type { ChipOption } from "../components/ui/ChipGroup";
+import { ChipGroup } from "../components/ui/ChipGroup";
 import { InfoTip } from "../components/ui/InfoTip";
+import { Pagination } from "../components/ui/Pagination";
+import { SortHeader } from "../components/ui/SortHeader";
+import type { TableSpec } from "../table/tableView";
 import { formatCurrency, formatDateShort } from "../utils";
 import { taxHref } from "../routes";
 
@@ -14,16 +22,103 @@ export type TaxPageProps = {
    * no onSelect counterpart.
    */
   selectedFy?: string | null;
+  /** Omit and the tables' view state stays local instead of in the URL. */
+  tableStore?: TableStore;
 };
 
 const signed = (paisa: number) =>
   `${paisa > 0 ? "+" : paisa < 0 ? "-" : ""}${formatCurrency(Math.abs(paisa))}`;
 
-export function TaxPage({ taxYears, selectedFy: selectedFyProp }: TaxPageProps) {
+type SaleSortKey =
+  | "sellDate"
+  | "ticker"
+  | "buyDate"
+  | "shares"
+  | "proceeds"
+  | "cost"
+  | "gain"
+  | "cgtRatePct"
+  | "cgt";
+
+const SALES_SPEC: TableSpec<RealizedSlice, SaleSortKey> = {
+  columns: [
+    { key: "sellDate", label: "Sold", value: (r) => r.sellDate },
+    { key: "ticker", label: "Ticker", value: (r) => r.ticker, defaultDir: "asc" },
+    { key: "buyDate", label: "Acquired", value: (r) => r.buyDate },
+    { key: "shares", label: "Shares", value: (r) => r.shares, align: "right" },
+    { key: "proceeds", label: "Proceeds", value: (r) => r.proceeds, align: "right" },
+    { key: "cost", label: "Cost", value: (r) => r.cost, align: "right" },
+    { key: "gain", label: "Gain", value: (r) => r.gain, align: "right" },
+    { key: "cgtRatePct", label: "Rate", value: (r) => r.cgtRatePct, align: "right" },
+    { key: "cgt", label: "CGT", value: (r) => r.cgt, align: "right" },
+  ],
+  search: (r) => [r.ticker],
+};
+
+const OUTCOME_OPTIONS: readonly ChipOption<"all" | "gains" | "losses">[] = [
+  { value: "all", label: "All" },
+  { value: "gains", label: "Gains" },
+  { value: "losses", label: "Losses" },
+];
+
+const SALES_FILTERS = {
+  keys: ["out"] as const,
+  toPredicates: (filters: Record<string, string>) => {
+    if (filters.out === "gains") return [(r: RealizedSlice) => r.gain > 0];
+    if (filters.out === "losses") return [(r: RealizedSlice) => r.gain < 0];
+    return [];
+  },
+};
+
+type DividendSortKey = "date" | "ticker" | "shares" | "gross" | "wht" | "net";
+
+const DIVIDEND_SPEC: TableSpec<DividendReceipt, DividendSortKey> = {
+  columns: [
+    { key: "date", label: "Date", value: (r) => r.date },
+    { key: "ticker", label: "Ticker", value: (r) => r.ticker, defaultDir: "asc" },
+    { key: "shares", label: "Shares", value: (r) => r.shares, align: "right" },
+    { key: "gross", label: "Gross", value: (r) => r.gross, align: "right" },
+    { key: "wht", label: "Withheld", value: (r) => r.wht, align: "right" },
+    { key: "net", label: "Net", value: (r) => r.net, align: "right" },
+  ],
+  search: (r) => [r.ticker],
+};
+
+// Stable empties, so the hooks can run before the empty-state return without
+// handing a fresh array to the memo on every render.
+const NO_SALES: RealizedSlice[] = [];
+const NO_DIVIDENDS: DividendReceipt[] = [];
+
+export function TaxPage({
+  taxYears,
+  selectedFy: selectedFyProp,
+  tableStore,
+}: TaxPageProps) {
   const latest = taxYears[taxYears.length - 1];
   const [localFy, setLocalFy] = useState<string | null>(null);
   const selectedFy = selectedFyProp !== undefined ? selectedFyProp : localFy;
   const year = taxYears.find((y) => y.fy === selectedFy) ?? latest;
+
+  // Hooks run before the empty-state return, so they see stable empty arrays
+  // rather than being called conditionally. `resetKey` clears search and paging
+  // when the user switches fiscal year — a different year is a different dataset.
+  const salesView = useTableView<RealizedSlice, SaleSortKey>(
+    year?.sales ?? NO_SALES,
+    SALES_SPEC,
+    {
+      store: tableStore,
+      ns: "tx",
+      defaultSort: { key: "sellDate", dir: "desc" },
+      filters: SALES_FILTERS,
+      resetKey: year?.fy ?? null,
+    },
+  );
+
+  const dividendsView = useTableView<DividendReceipt, DividendSortKey>(
+    year?.dividends ?? NO_DIVIDENDS,
+    DIVIDEND_SPEC,
+    { ns: "dv", defaultSort: { key: "date", dir: "desc" }, resetKey: year?.fy ?? null },
+  );
 
   if (!year) {
     return (
@@ -174,32 +269,68 @@ export function TaxPage({ taxYears, selectedFy: selectedFyProp }: TaxPageProps) 
             <p className="panel-kicker">FY {year.fy}</p>
             <h2>Sales</h2>
           </div>
-          <span className="panel-meta">{year.sales.length} matched lots</span>
+          <span className="panel-meta">
+            {salesView.active
+              ? `${salesView.total} of ${year.sales.length} matched lots`
+              : `${year.sales.length} matched lots`}
+          </span>
         </div>
+
+        {/* Gated on the unfiltered set: filtering down to nothing must show "no
+            matches", not make the whole panel disappear. */}
+        {year.sales.length > 0 ? (
+          <div className="table-controls table-controls--stacked">
+            <input
+              type="text"
+              className="table-search"
+              placeholder="Search ticker..."
+              value={salesView.query}
+              onChange={(e) => salesView.setQuery(e.target.value)}
+            />
+            <ChipGroup
+              options={OUTCOME_OPTIONS}
+              value={(salesView.filters.out as "all" | "gains" | "losses") ?? "all"}
+              onChange={(next) => salesView.setFilter("out", next === "all" ? null : next)}
+              ariaLabel="Filter by outcome"
+            />
+          </div>
+        ) : null}
+
+        {/* The year's figures above are whole-year and never narrow with the
+            table. Saying so prevents reading a filtered CGT column as a changed
+            tax bill. */}
+        {salesView.active ? (
+          <p className="muted-note">
+            Filters apply to this table only — the figures above cover the whole
+            year.
+          </p>
+        ) : null}
+
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Sold</th>
-                <th>Ticker</th>
-                <th>Acquired</th>
-                <th className="right">Shares</th>
-                <th className="right">Proceeds</th>
-                <th className="right">Cost</th>
-                <th className="right">Gain</th>
-                <th className="right">Rate</th>
-                <th className="right">CGT</th>
+                {SALES_SPEC.columns.map((column) => (
+                  <SortHeader
+                    key={column.key}
+                    label={column.label}
+                    sortKey={column.key}
+                    sort={salesView.sort}
+                    onClick={salesView.toggleSort}
+                    align={column.align}
+                  />
+                ))}
               </tr>
             </thead>
             <tbody>
-              {year.sales.length === 0 ? (
+              {salesView.rows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="empty-state">
-                    No sales in this tax year.
+                    {year.sales.length === 0 ? "No sales in this tax year." : "No matches."}
                   </td>
                 </tr>
               ) : (
-                year.sales.map((slice, i) => (
+                salesView.rows.map((slice, i) => (
                   <tr key={`${slice.txnId}-${i}`}>
                     <td>{formatDateShort(slice.sellDate)}</td>
                     <td>{slice.ticker}</td>
@@ -218,6 +349,18 @@ export function TaxPage({ taxYears, selectedFy: selectedFyProp }: TaxPageProps) 
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          label="Tax year sales"
+          page={salesView.page}
+          pageCount={salesView.pageCount}
+          pageSize={salesView.pageSize}
+          from={salesView.from}
+          to={salesView.to}
+          total={salesView.total}
+          onPage={salesView.setPage}
+          onPageSize={salesView.setPageSize}
+        />
       </section>
 
       {year.dividends.length > 0 ? (
@@ -227,33 +370,75 @@ export function TaxPage({ taxYears, selectedFy: selectedFyProp }: TaxPageProps) 
               <p className="panel-kicker">FY {year.fy}</p>
               <h2>Dividends</h2>
             </div>
+            <span className="panel-meta">
+              {dividendsView.active
+                ? `${dividendsView.total} of ${year.dividends.length} received`
+                : `${year.dividends.length} received`}
+            </span>
           </div>
+
+          {year.dividends.length > 1 ? (
+            <div className="table-controls table-controls--stacked">
+              <input
+                type="text"
+                className="table-search"
+                placeholder="Search ticker..."
+                value={dividendsView.query}
+                onChange={(e) => dividendsView.setQuery(e.target.value)}
+              />
+            </div>
+          ) : null}
+
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Ticker</th>
-                  <th className="right">Shares</th>
-                  <th className="right">Gross</th>
-                  <th className="right">Withheld</th>
-                  <th className="right">Net</th>
+                  {DIVIDEND_SPEC.columns.map((column) => (
+                    <SortHeader
+                      key={column.key}
+                      label={column.label}
+                      sortKey={column.key}
+                      sort={dividendsView.sort}
+                      onClick={dividendsView.toggleSort}
+                      align={column.align}
+                    />
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {year.dividends.map((receipt) => (
-                  <tr key={receipt.txnId}>
-                    <td>{formatDateShort(receipt.date)}</td>
-                    <td>{receipt.ticker}</td>
-                    <td className="right num">{receipt.shares.toLocaleString()}</td>
-                    <td className="right num">{formatCurrency(receipt.gross)}</td>
-                    <td className="right num">{formatCurrency(receipt.wht)}</td>
-                    <td className="right num">{formatCurrency(receipt.net)}</td>
+                {dividendsView.rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="empty-state">
+                      No matches.
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  dividendsView.rows.map((receipt) => (
+                    <tr key={receipt.txnId}>
+                      <td>{formatDateShort(receipt.date)}</td>
+                      <td>{receipt.ticker}</td>
+                      <td className="right num">{receipt.shares.toLocaleString()}</td>
+                      <td className="right num">{formatCurrency(receipt.gross)}</td>
+                      <td className="right num">{formatCurrency(receipt.wht)}</td>
+                      <td className="right num">{formatCurrency(receipt.net)}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
+
+          <Pagination
+            label="Tax year dividends"
+            page={dividendsView.page}
+            pageCount={dividendsView.pageCount}
+            pageSize={dividendsView.pageSize}
+            from={dividendsView.from}
+            to={dividendsView.to}
+            total={dividendsView.total}
+            onPage={dividendsView.setPage}
+            onPageSize={dividendsView.setPageSize}
+          />
         </section>
       ) : null}
     </>

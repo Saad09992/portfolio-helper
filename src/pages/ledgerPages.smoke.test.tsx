@@ -16,7 +16,7 @@ import { buildStockRows } from "../ledger/perStock";
 import { buildTaxYears } from "../ledger/tax";
 import { DEFAULT_FEE_CONFIG } from "../ledger/feeConfig";
 import type { Holding } from "../types";
-import { partiallySoldTransactions as transactions } from "../ledger/testFixtures";
+import { partiallySoldTransactions as transactions, txn } from "../ledger/testFixtures";
 
 const state = replayLedger(transactions, DEFAULT_FEE_CONFIG);
 const stockRows = buildStockRows(
@@ -88,6 +88,50 @@ describe("LedgerPage", () => {
     expect(html).toContain("OGDC");
     expect(html).toContain("No entries yet");
   });
+
+  it("pages a long ledger, rendering only the first page", () => {
+    // The real complaint: ~350 entries in one scroll. There is no DOM here, so
+    // this asserts the first page is correct without any effect having run.
+    const many = Array.from({ length: 60 }, (_, i) =>
+      txn({
+        id: `t${i}`,
+        date: `2025-03-${String((i % 28) + 1).padStart(2, "0")}`,
+        type: "BUY",
+        ticker: "LUCK",
+        shares: 1,
+        price: 14_500,
+        // A marker unique to a row that must land beyond page 1.
+        note: `entry-marker-${i}`,
+      }),
+    );
+    const html = renderToString(
+      <LedgerPage
+        transactions={many}
+        feeConfig={DEFAULT_FEE_CONFIG}
+        state={replayLedger(many, DEFAULT_FEE_CONFIG)}
+        cash={0}
+        cgtReserve={0}
+        hasLedger
+        storedHoldings={[]}
+        storedCash={0}
+        today="2026-07-23"
+        addTransaction={noop}
+        addTransactions={noop}
+        removeTransaction={noop}
+      />,
+    );
+    // The whole-ledger count stays the header's anchor. React splits the text
+    // node, so match the parts rather than the sentence.
+    expect(html).toContain(">60<");
+    expect(html).toContain(" entries</h2>");
+    expect(html).toContain("Showing 1–50 of 60");
+    expect(html).toContain("Ledger pagination");
+    // Exactly one page worth of rows, not all 60.
+    expect(html.match(/entry-marker-/g)).toHaveLength(50);
+    // Sorted date-desc, so the latest date is on page 1 and the earliest is not.
+    expect(html).toContain(">entry-marker-27<");
+    expect(html).not.toContain(">entry-marker-0<");
+  });
 });
 
 describe("StocksPage", () => {
@@ -155,11 +199,7 @@ describe("HoldingsPage under the ledger", () => {
         setDraft={noop}
         draftError=""
         addManualHolding={noop}
-        holdingsSearch=""
-        setHoldingsSearch={noop}
-        sortedHoldings={derived}
-        holdingsSort={{ key: null, dir: "desc" }}
-        toggleSort={noop}
+        holdings={derived}
         updateHoldingShares={noop}
         updateHoldingCostBasis={noop}
         removeHolding={noop}
@@ -190,12 +230,8 @@ describe("HoldingsPage under the ledger", () => {
         }}
         setDraft={noop}
         draftError=""
-        holdingsSearch=""
         addManualHolding={noop}
-        setHoldingsSearch={noop}
-        sortedHoldings={derived}
-        holdingsSort={{ key: null, dir: "desc" }}
-        toggleSort={noop}
+        holdings={derived}
         updateHoldingShares={noop}
         updateHoldingCostBasis={noop}
         removeHolding={noop}

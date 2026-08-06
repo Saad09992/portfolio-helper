@@ -76,7 +76,6 @@ import {
 import { CopySummaryButton } from "./components/CopySummaryButton";
 import { CommandPalette } from "./components/CommandPalette";
 import type { PortfolioSummaryInput } from "./portfolio/summary";
-import type { HoldingsSortKey, SortDir } from "./uiTypes";
 import { OverviewPage } from "./pages/OverviewPage";
 import { HoldingsPage } from "./pages/HoldingsPage";
 import { TargetsPage } from "./pages/TargetsPage";
@@ -147,14 +146,19 @@ function App() {
   const [cashDraft, setCashDraft] = useState<CashBuckets>(() => loadCashBuckets());
   const [targets, setTargets] = useState<TargetAllocation[]>(() => loadTargets());
   const [targetDraft, setTargetDraft] = useState<DraftTarget>(emptyTargetDraft);
-  const [targetFilter, setTargetFilter] = useState("");
-  const [targetStatusFilter, setTargetStatusFilter] = useState<"all" | "over" | "under" | "ontrack" | "due">("all");
   const [targetPresets, setTargetPresets] = useState<TargetPreset[]>(() => loadTargetPresets());
   // Navigation and view state live in the location hash — see `src/routes.ts`.
   // Toggles are derived from `route.query` but keep the same prop signatures the
   // pages already expect, so nothing downstream changes shape.
   const { route, navigate, setParam } = useHashRoute();
   const page = route.page;
+
+  // Handed to the URL-backed tables so their search, sort, filters and page live
+  // in the hash. Memoized because `useTableView` keys its derivation on it.
+  const tableStore = useMemo(
+    () => ({ query: route.query, setParam }),
+    [route.query, setParam],
+  );
 
   const treemapMode: "sector" | "ticker" =
     route.query.tmap === "ticker" ? "ticker" : "sector";
@@ -181,17 +185,6 @@ function App() {
   const [investDraft, setInvestDraft] = useState<DraftInvestment>(emptyInvestmentDraft);
   const [investError, setInvestError] = useState("");
   const [history, setHistory] = useState<PortfolioSnapshot[]>(() => loadHistory());
-  // Holdings search stays local state so typing is instant, and is mirrored into
-  // `?q=` on a debounce. Sort is discrete, so it reads straight off the route.
-  const [holdingsSearch, setHoldingsSearch] = useState(() => route.query.q ?? "");
-  const holdingsSort = useMemo<{ key: HoldingsSortKey | null; dir: SortDir }>(
-    () => ({
-      key: (route.query.sort as HoldingsSortKey | undefined) ?? null,
-      dir: route.query.dir === "asc" ? "asc" : "desc",
-    }),
-    [route.query.sort, route.query.dir],
-  );
-
   const [fetching, setFetching] = useState(false);
   const [quoteSources, setQuoteSources] = useState<HoldingSources>({});
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(
@@ -241,31 +234,6 @@ function App() {
     }
     return [...seen.values()].sort((a, b) => a.ticker.localeCompare(b.ticker));
   }, [ledger.stockRows, holdings]);
-
-  // Holdings search <-> `?q=`. `searchMirror` records the last value this side
-  // wrote, so an inbound route change can be told apart from our own echo and
-  // only genuinely external ones (back/forward, a pasted link) reset the input.
-  //
-  // It holds the TRIMMED text, because that is what gets written to the URL.
-  // Storing the raw value instead would make a trailing space look like an
-  // external change and echo the trimmed string back into the input — deleting
-  // the space the user just typed, so "oil " + "gas" came out "oilgas".
-  const searchMirror = useRef(holdingsSearch.trim());
-  useEffect(() => {
-    if (page !== "holdings") return;
-    const timer = window.setTimeout(() => {
-      searchMirror.current = holdingsSearch.trim();
-      setParam("q", searchMirror.current || null);
-    }, UI_LIMITS.SEARCH_URL_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [holdingsSearch, page, setParam]);
-
-  const routeSearch = route.query.q ?? "";
-  useEffect(() => {
-    if (routeSearch === searchMirror.current) return;
-    searchMirror.current = routeSearch;
-    setHoldingsSearch(routeSearch);
-  }, [routeSearch]);
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(holdings));
@@ -704,68 +672,6 @@ function App() {
     ledger.feeConfig,
   ]);
 
-  const sortedHoldings = useMemo(() => {
-    const q = holdingsSearch.trim().toLowerCase();
-    const byClass =
-      portfolio.holdings;
-    const filtered = q
-      ? byClass.filter(
-          (h) =>
-            h.ticker.toLowerCase().includes(q) ||
-            h.name.toLowerCase().includes(q) ||
-            h.sector.toLowerCase().includes(q),
-        )
-      : [...byClass];
-
-    const { key, dir } = holdingsSort;
-    if (!key) return filtered;
-
-    const mult = dir === "asc" ? 1 : -1;
-    const valueOf = (h: typeof filtered[number]): string | number => {
-      switch (key) {
-        case "ticker": return h.ticker;
-        case "name": return h.name;
-        case "sector": return h.sector;
-        case "shares": return h.shares;
-        case "costBasis": return h.costBasis;
-        case "price": return h.price;
-        case "dayChangePct": return h.dayChangePct;
-        case "marketValue": return h.marketValue;
-        case "weight": return h.weight;
-        case "pnlToday": return h.marketValue * h.dayChangePct / (100 + h.dayChangePct || 1);
-        case "gainLoss": return h.gainLoss;
-      }
-    };
-
-    filtered.sort((a, b) => {
-      const aCash = a.id.startsWith("cash-");
-      const bCash = b.id.startsWith("cash-");
-      if (aCash && !bCash) return 1;
-      if (!aCash && bCash) return -1;
-      const va = valueOf(a);
-      const vb = valueOf(b);
-      if (typeof va === "string" && typeof vb === "string") {
-        return va.localeCompare(vb) * mult;
-      }
-      return ((va as number) - (vb as number)) * mult;
-    });
-
-    return filtered;
-  }, [portfolio.holdings, holdingsSearch, holdingsSort]);
-
-  function toggleSort(key: HoldingsSortKey) {
-    // desc -> asc -> unsorted, same cycle as before; now expressed in the URL.
-    if (holdingsSort.key !== key) {
-      setParam("dir", null);
-      setParam("sort", key);
-    } else if (holdingsSort.dir === "desc") {
-      setParam("sort", key);
-      setParam("dir", "asc");
-    } else {
-      setParam("sort", null);
-      setParam("dir", null);
-    }
-  }
 
   const treemapItems = useMemo(() => {
     if (treemapMode === "sector") {
@@ -1483,17 +1389,14 @@ function App() {
           setDraft={setDraft}
           draftError={draftError}
           addManualHolding={addManualHolding}
-          holdingsSearch={holdingsSearch}
-          setHoldingsSearch={setHoldingsSearch}
-          sortedHoldings={sortedHoldings}
-          holdingsSort={holdingsSort}
-          toggleSort={toggleSort}
+          holdings={portfolio.holdings}
           updateHoldingShares={updateHoldingShares}
           updateHoldingCostBasis={updateHoldingCostBasis}
           removeHolding={removeHolding}
           quoteSources={quoteSources}
           ledgerActive={ledger.hasLedger}
           stockRows={ledger.stockRows}
+          tableStore={tableStore}
         />
       )}
 
@@ -1511,6 +1414,7 @@ function App() {
           addTransaction={ledger.addTransaction}
           addTransactions={ledger.addTransactions}
           removeTransaction={removeLedgerEntry}
+          tableStore={tableStore}
         />
       )}
 
@@ -1521,11 +1425,16 @@ function App() {
           transactions={ledger.transactions}
           selected={route.entity}
           onSelect={(ticker) => navigate({ page: "stocks", entity: ticker })}
+          tableStore={tableStore}
         />
       )}
 
       {page === "tax" && (
-        <TaxPage taxYears={ledger.taxYears} selectedFy={route.entity} />
+        <TaxPage
+          taxYears={ledger.taxYears}
+          selectedFy={route.entity}
+          tableStore={tableStore}
+        />
       )}
 
       {page === "settings" && (
@@ -1546,10 +1455,6 @@ function App() {
           holdings={portfolio.holdings}
           targetRows={targetRows}
           driftSummary={driftSummary}
-          targetStatusFilter={targetStatusFilter}
-          setTargetStatusFilter={setTargetStatusFilter}
-          targetFilter={targetFilter}
-          setTargetFilter={setTargetFilter}
           markTargetRebalanced={markTargetRebalanced}
           removeTarget={removeTarget}
           updateTargetThreshold={updateTargetThreshold}

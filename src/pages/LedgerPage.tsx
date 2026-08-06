@@ -3,12 +3,28 @@ import type { Holding } from "../types";
 import type { FeeConfig } from "../ledger/feeConfig";
 import type { LedgerState, Transaction, TxnType } from "../ledger/types";
 import type { TransactionDraft } from "../hooks/useLedger";
+import type { TableStore } from "../hooks/useTableView";
+import { useTableView } from "../hooks/useTableView";
 import { computeTradeCosts, tradeValue } from "../ledger/fees";
 import { formatCurrency, formatDateShort } from "../utils";
 import { roundPaisa, rupeesToPaisa } from "../money";
 import { Field } from "../components/ui/Field";
+import { Combobox } from "../components/ui/Combobox";
+import { MultiChipGroup } from "../components/ui/ChipGroup";
+import { Pagination } from "../components/ui/Pagination";
+import { SortHeader } from "../components/ui/SortHeader";
 import { StockSearch } from "../components/StockSearch";
 import { LedgerMigration } from "../components/LedgerMigration";
+import {
+  LEDGER_DEFAULT_SORT,
+  LEDGER_FILTER_KEYS,
+  LEDGER_TYPE_OPTIONS,
+  ledgerPredicates,
+  ledgerSpec,
+  rowFees,
+  rowValue,
+  type LedgerSortKey,
+} from "./ledgerTable";
 
 const TYPES: { value: TxnType; label: string; hint: string }[] = [
   { value: "BUY", label: "Buy", hint: "Shares bought — fees are added to your cost." },
@@ -76,6 +92,8 @@ export type LedgerPageProps = {
   addTransaction: (draft: TransactionDraft) => void;
   addTransactions: (drafts: TransactionDraft[]) => void;
   removeTransaction: (id: string) => void;
+  /** Omit and the table's view state stays local instead of in the URL. */
+  tableStore?: TableStore;
 };
 
 export function LedgerPage({
@@ -91,10 +109,10 @@ export function LedgerPage({
   addTransaction,
   addTransactions,
   removeTransaction,
+  tableStore,
 }: LedgerPageProps) {
   const [draft, setDraft] = useState<Draft>(() => emptyDraft(today));
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState("");
 
   const set = (patch: Partial<Draft>) => setDraft((cur) => ({ ...cur, ...patch }));
 
@@ -131,20 +149,35 @@ export function LedgerPage({
     return map;
   }, [state.issues]);
 
-  const rows = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    const sorted = [...transactions].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id),
-    );
-    return q
-      ? sorted.filter(
-          (t) =>
-            t.ticker.toLowerCase().includes(q) ||
-            t.type.toLowerCase().includes(q) ||
-            t.note.toLowerCase().includes(q),
-        )
-      : sorted;
-  }, [transactions, filter]);
+  // Built over the FULL replay above, and deliberately independent of the table
+  // view: a row's tax depends on which lots FIFO matched, so it cannot be derived
+  // from the page. Only the tbody's iterand narrows — never these maps.
+  const spec = useMemo(
+    () => ledgerSpec(feeConfig, cgtByTxn, whtByTxn),
+    [feeConfig, cgtByTxn, whtByTxn],
+  );
+
+  const view = useTableView<Transaction, LedgerSortKey>(transactions, spec, {
+    store: tableStore,
+    ns: "l",
+    defaultSort: LEDGER_DEFAULT_SORT,
+    filters: { keys: LEDGER_FILTER_KEYS, toPredicates: ledgerPredicates },
+  });
+
+  // Tickers actually present in the ledger — the filter should only offer what
+  // can match.
+  const tickerOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const txn of transactions) {
+      if (txn.ticker) seen.add(txn.ticker.toUpperCase());
+    }
+    return [...seen].sort();
+  }, [transactions]);
+
+  const selectedTypes = useMemo(
+    () => (view.filters.type ? (view.filters.type.split(",") as TxnType[]) : []),
+    [view.filters.type],
+  );
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -399,44 +432,86 @@ export function LedgerPage({
         <div className="panel-header">
           <div>
             <p className="panel-kicker">Ledger</p>
+            {/* The whole-ledger count is the anchor and never moves; the matching
+                count is the secondary line, and the window belongs to the pager. */}
             <h2>{transactions.length} entries</h2>
+            {view.active ? (
+              <p className="panel-kicker">{view.total} matching</p>
+            ) : null}
           </div>
-          <div className="holdings-controls">
+          <div className="table-controls">
             <input
               type="text"
-              className="holdings-search"
-              placeholder="Filter ticker, type, note..."
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              className="table-search"
+              placeholder="Search ticker, name, type, note, date..."
+              value={view.query}
+              onChange={(e) => view.setQuery(e.target.value)}
             />
           </div>
+        </div>
+
+        <div className="table-controls table-controls--stacked">
+          <MultiChipGroup
+            options={LEDGER_TYPE_OPTIONS}
+            values={selectedTypes}
+            onChange={(next) => view.setFilter("type", next.join(",") || null)}
+            ariaLabel="Filter by entry type"
+          />
+          <label className="table-filter-label">
+            From
+            <input
+              type="date"
+              className="table-filter-select"
+              value={view.filters.from ?? ""}
+              onChange={(e) => view.setFilter("from", e.target.value || null)}
+            />
+          </label>
+          <label className="table-filter-label">
+            To
+            <input
+              type="date"
+              className="table-filter-select"
+              value={view.filters.to ?? ""}
+              onChange={(e) => view.setFilter("to", e.target.value || null)}
+            />
+          </label>
+          {tickerOptions.length > 0 ? (
+            <Combobox
+              value={view.filters.tkr ?? ""}
+              onChange={(value) => view.setFilter("tkr", value || null)}
+              options={tickerOptions}
+              placeholder="Any ticker"
+            />
+          ) : null}
         </div>
 
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Ticker</th>
-                <th className="right">Shares</th>
-                <th className="right">Price</th>
-                <th className="right">Value</th>
-                <th className="right">Fees</th>
-                <th className="right">Tax</th>
+                <SortHeader label="Date" sortKey="date" sort={view.sort} onClick={view.toggleSort} />
+                <SortHeader label="Type" sortKey="type" sort={view.sort} onClick={view.toggleSort} />
+                <SortHeader label="Ticker" sortKey="ticker" sort={view.sort} onClick={view.toggleSort} />
+                <SortHeader label="Shares" sortKey="shares" sort={view.sort} onClick={view.toggleSort} align="right" />
+                <SortHeader label="Price" sortKey="price" sort={view.sort} onClick={view.toggleSort} align="right" />
+                <SortHeader label="Value" sortKey="value" sort={view.sort} onClick={view.toggleSort} align="right" />
+                <SortHeader label="Fees" sortKey="fees" sort={view.sort} onClick={view.toggleSort} align="right" />
+                <SortHeader label="Tax" sortKey="tax" sort={view.sort} onClick={view.toggleSort} align="right" />
                 <th>Note</th>
                 <th className="right">Action</th>
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {view.rows.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="empty-state">
-                    {filter ? "No matches." : "No entries yet. Record your first trade above."}
+                    {view.active
+                      ? "No matches."
+                      : "No entries yet. Record your first trade above."}
                   </td>
                 </tr>
               ) : (
-                rows.map((txn) => {
+                view.rows.map((txn) => {
                   const value = rowValue(txn);
                   const fees = rowFees(txn, feeConfig);
                   const tax = (cgtByTxn.get(txn.id) ?? 0) + (whtByTxn.get(txn.id) ?? 0);
@@ -484,23 +559,21 @@ export function LedgerPage({
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          label="Ledger"
+          page={view.page}
+          pageCount={view.pageCount}
+          pageSize={view.pageSize}
+          from={view.from}
+          to={view.to}
+          total={view.total}
+          onPage={view.setPage}
+          onPageSize={view.setPageSize}
+        />
       </section>
     </>
   );
-}
-
-function rowValue(txn: Transaction): number {
-  if (["DEPOSIT", "WITHDRAW", "TAX", "EXPENSE"].includes(txn.type)) {
-    return txn.amount;
-  }
-  if (txn.type === "DIVIDEND") return txn.amount > 0 ? txn.amount : 0;
-  if (txn.type === "SPLIT") return 0;
-  return tradeValue(txn.shares, txn.price);
-}
-
-function rowFees(txn: Transaction, cfg: FeeConfig): number {
-  if (txn.type !== "BUY" && txn.type !== "SELL") return 0;
-  return computeTradeCosts(txn.shares, txn.price, cfg, txn.feeOverride).total;
 }
 
 type PreviewLine = { label: string; value: number; strong?: boolean };

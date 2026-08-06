@@ -2857,6 +2857,8 @@ th {
 .target-form-field select,
 .invest-form input,
 .holdings-search,
+.table-search,
+.table-filter-select,
 .drift-sort,
 .target-filter,
 .drift-cadence-select {
@@ -2871,6 +2873,8 @@ th {
 .target-form-field select:focus,
 .invest-form input:focus,
 .holdings-search:focus,
+.table-search:focus,
+.table-filter-select:focus,
 .drift-sort:focus,
 .target-filter:focus {
   outline: none;
@@ -4253,5 +4257,154 @@ kbd {
     padding-top: var(--s2);
     border-left: none;
     border-top: 1px solid var(--panel-border-strong);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Table view controls — search, filter chips and the pager. Shared by every
+   data table.
+
+   Deliberately at the end of the file. Per the note above, this sheet has two
+   layers and the revamp block re-declares .table-wrap and .holdings-table; a
+   rule placed next to the other table styles would lose to it.
+   --------------------------------------------------------------------------- */
+
+/* The control row above a table. Generalizes .holdings-controls, which only ever
+   had to hold one search box — the ledger's row carries search, ten type chips,
+   a date range and a ticker picker, so it has to wrap. */
+.table-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.table-controls--stacked {
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+/* Box styling is inherited from the shared input rule above; only sizing here. */
+.table-search {
+  width: 100%;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 8px 12px;
+  font-size: 0.86rem;
+}
+
+.table-filter-select {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+
+.table-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Pager ── */
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pager-status {
+  margin: 0;
+  /* Small mono digits need the extra weight to stay legible — see the note on
+     table small text above. */
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.pager-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.pager-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.pager-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.pager-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* aria-disabled, not :disabled — the buttons stay focusable on purpose so that
+   paging to the last page doesn't drop focus to <body>. See Pagination.tsx. */
+.pager-btn[aria-disabled="true"] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pager-btn[aria-disabled="true"]:hover {
+  border-color: var(--panel-border-strong);
+  color: var(--muted);
+}
+
+.pager-page {
+  padding: 0 var(--s2);
+  letter-spacing: 0.04em;
+}
+
+.pager-page strong {
+  color: var(--text);
+}
+
+.pager-size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 720px) {
+  .pager {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pager-nav {
+    justify-content: center;
+  }
+
+  .table-search {
+    max-width: none;
   }
 }

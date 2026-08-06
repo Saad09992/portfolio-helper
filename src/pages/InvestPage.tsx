@@ -1,7 +1,23 @@
 import type { InvestmentRow, InvestmentSummary } from "../derivedTypes";
 import type { SavingsStats } from "../analytics";
+import { useTableView } from "../hooks/useTableView";
+import type { TableSpec } from "../table/tableView";
 import { formatCompactCurrency, formatCurrency, formatPercent } from "../utils";
+import { Pagination } from "../components/ui/Pagination";
 import { InvestmentChart } from "../components/charts/InvestmentChart";
+
+/**
+ * No sortable columns, by design.
+ *
+ * `total` is a running sum accumulated in date order upstream (see
+ * `investmentRows` in App), so row N's value depends on rows 1..N-1. Reordering
+ * the table would leave the numbers intact but destroy what the column means, so
+ * the table keeps its date order and gets search and paging only.
+ */
+const INVEST_SPEC: TableSpec<InvestmentRow, never> = {
+  columns: [],
+  search: (r) => [r.label, r.date],
+};
 
 type DraftInvestment = {
   date: string;
@@ -34,6 +50,7 @@ export function InvestPage({
   savingsStats,
 }: InvestPageProps) {
   const sv = savingsStats;
+  const view = useTableView<InvestmentRow, never>(investmentRows, INVEST_SPEC);
   return (
     <>
       <section className="panel risk-panel">
@@ -176,8 +193,19 @@ export function InvestPage({
             <p className="panel-kicker">Entries</p>
             <h2>Installment ledger</h2>
           </div>
+          <div className="table-controls">
+            <input
+              type="text"
+              className="table-search"
+              placeholder="Search label or date..."
+              value={view.query}
+              onChange={(e) => view.setQuery(e.target.value)}
+            />
+          </div>
         </div>
-        <div className="table-scroll">
+        {/* `.table-wrap`, not the old `.table-scroll` — that class was never
+            defined in the stylesheet, so this table had no overflow at all. */}
+        <div className="table-wrap">
           <table className="holdings-table">
             <thead>
               <tr>
@@ -192,14 +220,16 @@ export function InvestPage({
               </tr>
             </thead>
             <tbody>
-              {investmentRows.length === 0 ? (
+              {view.rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="empty-state">
-                    No entries yet. Add an installment above to start tracking.
+                    {investmentRows.length === 0
+                      ? "No entries yet. Add an installment above to start tracking."
+                      : "No matches."}
                   </td>
                 </tr>
               ) : (
-                investmentRows.map((row) => (
+                view.rows.map((row) => (
                   <tr key={row.id}>
                     <td className="num">{row.date}</td>
                     <td>{row.label}</td>
@@ -229,6 +259,18 @@ export function InvestPage({
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          label="Installment ledger"
+          page={view.page}
+          pageCount={view.pageCount}
+          pageSize={view.pageSize}
+          from={view.from}
+          to={view.to}
+          total={view.total}
+          onPage={view.setPage}
+          onPageSize={view.setPageSize}
+        />
       </section>
     </>
   );

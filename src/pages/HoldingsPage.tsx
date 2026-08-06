@@ -1,14 +1,18 @@
 import { useMemo } from "react";
 import type { DerivedHolding, Holding } from "../types";
 import type { StockLedgerRow } from "../ledger/perStock";
-import type { HoldingsSortKey, HoldingsSortState } from "../uiTypes";
+import type { HoldingsSortKey } from "../uiTypes";
 import type { HoldingSources } from "../services/psx-scraper";
+import type { TableStore } from "../hooks/useTableView";
+import { useTableView } from "../hooks/useTableView";
 import { formatCurrency, formatPercent } from "../utils";
 import { paisaToRupees } from "../money";
 import { Field } from "../components/ui/Field";
+import { Pagination } from "../components/ui/Pagination";
 import { SortHeader } from "../components/ui/SortHeader";
 import { StockSearch } from "../components/StockSearch";
 import { pageHref, stockHref } from "../routes";
+import { HOLDINGS_SPEC, pnlToday } from "./holdingsTable";
 
 type DraftHolding = Omit<Holding, "id" | "account">;
 
@@ -17,11 +21,8 @@ export type HoldingsPageProps = {
   setDraft: React.Dispatch<React.SetStateAction<DraftHolding>>;
   draftError: string;
   addManualHolding: (event: React.FormEvent<HTMLFormElement>) => void;
-  holdingsSearch: string;
-  setHoldingsSearch: (value: string) => void;
-  sortedHoldings: DerivedHolding[];
-  holdingsSort: HoldingsSortState;
-  toggleSort: (key: HoldingsSortKey) => void;
+  /** All holdings, unsorted and unfiltered — the table owns its own view. */
+  holdings: DerivedHolding[];
   updateHoldingShares: (id: string, value: number) => void;
   updateHoldingCostBasis: (id: string, value: number) => void;
   removeHolding: (id: string) => void;
@@ -29,6 +30,13 @@ export type HoldingsPageProps = {
   /** true once the ledger owns share counts and cost basis */
   ledgerActive: boolean;
   stockRows: StockLedgerRow[];
+  /**
+   * Omit and the view state stays local. When passed, this table uses BARE query
+   * keys (`q`, `sort`, `dir`) — `#/holdings?q=luck&sort=weight&dir=desc` is a
+   * documented shareable link and the target of `holdingsQueryHref`, so it must
+   * not gain a namespace prefix.
+   */
+  tableStore?: TableStore;
 };
 
 export function HoldingsPage({
@@ -36,18 +44,20 @@ export function HoldingsPage({
   setDraft,
   draftError,
   addManualHolding,
-  holdingsSearch,
-  setHoldingsSearch,
-  sortedHoldings,
-  holdingsSort,
-  toggleSort,
+  holdings,
   updateHoldingShares,
   updateHoldingCostBasis,
   removeHolding,
   quoteSources,
   ledgerActive,
   stockRows,
+  tableStore,
 }: HoldingsPageProps) {
+  const view = useTableView<DerivedHolding, HoldingsSortKey>(holdings, HOLDINGS_SPEC, {
+    store: tableStore,
+    ns: "",
+  });
+
   const rowByTicker = useMemo(() => {
     const map = new Map<string, StockLedgerRow>();
     for (const row of stockRows) map.set(row.ticker, row);
@@ -136,13 +146,13 @@ export function HoldingsPage({
             <p className="panel-kicker">Holdings</p>
             <h2>Portfolio breakdown</h2>
           </div>
-          <div className="holdings-controls">
+          <div className="table-controls">
             <input
               type="text"
-              className="holdings-search"
+              className="table-search"
               placeholder="Search ticker, name, sector..."
-              value={holdingsSearch}
-              onChange={(e) => setHoldingsSearch(e.target.value)}
+              value={view.query}
+              onChange={(e) => view.setQuery(e.target.value)}
             />
           </div>
         </div>
@@ -151,31 +161,30 @@ export function HoldingsPage({
           <table>
             <thead>
               <tr>
-                <SortHeader label="Ticker" sortKey="ticker" sort={holdingsSort} onClick={toggleSort} />
-                <SortHeader label="Name" sortKey="name" sort={holdingsSort} onClick={toggleSort} />
-                <SortHeader label="Sector" sortKey="sector" sort={holdingsSort} onClick={toggleSort} />
-                <SortHeader label="Shares" sortKey="shares" sort={holdingsSort} onClick={toggleSort} align="right" />
-                <SortHeader label="Avg price" sortKey="costBasis" sort={holdingsSort} onClick={toggleSort} align="right" />
-                <SortHeader label="Current price" sortKey="price" sort={holdingsSort} onClick={toggleSort} align="right" />
-                <SortHeader label="Day %" sortKey="dayChangePct" sort={holdingsSort} onClick={toggleSort} align="right" />
-                <SortHeader label="Market value" sortKey="marketValue" sort={holdingsSort} onClick={toggleSort} align="right" />
-                <SortHeader label="Weight" sortKey="weight" sort={holdingsSort} onClick={toggleSort} align="right" />
-                <SortHeader label="P&L today" sortKey="pnlToday" sort={holdingsSort} onClick={toggleSort} align="right" />
-                <SortHeader label="P&L total" sortKey="gainLoss" sort={holdingsSort} onClick={toggleSort} align="right" />
+                {HOLDINGS_SPEC.columns.map((column) => (
+                  <SortHeader
+                    key={column.key}
+                    label={column.label}
+                    sortKey={column.key}
+                    sort={view.sort}
+                    onClick={view.toggleSort}
+                    align={column.align}
+                  />
+                ))}
                 {ledgerActive ? <th className="right">Realized</th> : null}
                 {ledgerActive ? <th className="right">Net P&L</th> : null}
                 <th className="right">Action</th>
               </tr>
             </thead>
             <tbody>
-              {sortedHoldings.length === 0 ? (
+              {view.rows.length === 0 ? (
                 <tr>
                   <td colSpan={ledgerActive ? 14 : 12} className="empty-state">
-                    {holdingsSearch ? "No matches." : "No holdings yet. Use Quick add above or Import a saved backup."}
+                    {view.active ? "No matches." : "No holdings yet. Use Quick add above or Import a saved backup."}
                   </td>
                 </tr>
               ) : (
-                sortedHoldings.map((holding) => {
+                view.rows.map((holding) => {
                   const syntheticCash = holding.id.startsWith("cash-");
                   const src = quoteSources[holding.ticker.toUpperCase()];
                   const fallback =
@@ -274,7 +283,10 @@ export function HoldingsPage({
                       <td className={`right num ${holding.dayChangePct >= 0 ? "positive" : "negative"}`}>
                         {syntheticCash ? "-" : (
                           <>
-                            {formatCurrency(holding.marketValue * holding.dayChangePct / (100 + holding.dayChangePct))}
+                            {/* Same helper the sort comparator uses, so the column
+                                can't order itself by a different number than it
+                                displays. */}
+                            {formatCurrency(pnlToday(holding))}
                             <br />
                             <small>{holding.dayChangePct >= 0 ? "+" : ""}{holding.dayChangePct.toFixed(2)}%</small>
                           </>
@@ -323,6 +335,18 @@ export function HoldingsPage({
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          label="Holdings"
+          page={view.page}
+          pageCount={view.pageCount}
+          pageSize={view.pageSize}
+          from={view.from}
+          to={view.to}
+          total={view.total}
+          onPage={view.setPage}
+          onPageSize={view.setPageSize}
+        />
       </section>
     </>
   );

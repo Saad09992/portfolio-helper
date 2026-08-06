@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 
 export type ChipOption<T extends string> = {
   value: T;
@@ -6,6 +6,15 @@ export type ChipOption<T extends string> = {
   /** Optional native tooltip — used for the terser chips ("Map", "Ranked"). */
   title?: string;
 };
+
+/** Shared by both groups: which index an arrow/Home/End key moves to, or null. */
+function nextIndex(key: string, current: number, count: number): number | null {
+  if (key === "ArrowRight" || key === "ArrowDown") return (current + 1) % count;
+  if (key === "ArrowLeft" || key === "ArrowUp") return (current - 1 + count) % count;
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  return null;
+}
 
 /**
  * A single-select row of chips.
@@ -43,18 +52,8 @@ export function ChipGroup<T extends string>({
       const current = options.findIndex((o) => o.value === value);
       if (current === -1) return;
 
-      let next = current;
-      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-        next = (current + 1) % options.length;
-      } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-        next = (current - 1 + options.length) % options.length;
-      } else if (event.key === "Home") {
-        next = 0;
-      } else if (event.key === "End") {
-        next = options.length - 1;
-      } else {
-        return;
-      }
+      const next = nextIndex(event.key, current, options.length);
+      if (next === null) return;
 
       event.preventDefault();
       onChange(options[next].value);
@@ -83,6 +82,94 @@ export function ChipGroup<T extends string>({
             tabIndex={active ? 0 : -1}
             title={option.title}
             onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * A multi-select row of chips — the same look and the same `aria-pressed` toggles,
+ * but any number can be on at once. Used for the ledger's transaction-type filter,
+ * where ten types and "show me buys and sells" is the normal request.
+ *
+ * Keyboard differs from the single-select group by necessity: with no one active
+ * value there is nothing for selection-follows-focus to mean, so Arrow keys move
+ * focus only and Space/Enter toggles — the toolbar pattern rather than the radio
+ * one. Focus lands on the first selected chip, or the first chip when none are.
+ *
+ * An empty selection means "no filter", not "hide everything" — the caller decides,
+ * but every caller here treats it as unfiltered, which is what makes clearing the
+ * last chip feel right rather than blanking the table.
+ */
+export function MultiChipGroup<T extends string>({
+  options,
+  values,
+  onChange,
+  ariaLabel,
+  className,
+}: {
+  options: readonly ChipOption<T>[];
+  values: readonly T[];
+  onChange: (values: T[]) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [focusIndex, setFocusIndex] = useState(0);
+
+  const focusAt = useCallback((index: number) => {
+    const buttons = ref.current?.querySelectorAll<HTMLButtonElement>("button.chip");
+    buttons?.[index]?.focus();
+  }, []);
+
+  const toggle = useCallback(
+    (value: T) => {
+      onChange(
+        values.includes(value) ? values.filter((v) => v !== value) : [...values, value],
+      );
+    },
+    [onChange, values],
+  );
+
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const next = nextIndex(event.key, focusIndex, options.length);
+      if (next === null) return;
+      event.preventDefault();
+      setFocusIndex(next);
+      focusAt(next);
+    },
+    [focusAt, focusIndex, options.length],
+  );
+
+  // The single tab stop: the first selected chip, else whatever was last focused.
+  const firstSelected = options.findIndex((o) => values.includes(o.value));
+  const tabStop = firstSelected === -1 ? focusIndex : firstSelected;
+
+  return (
+    <div
+      ref={ref}
+      className={`chip-group ${className ?? ""}`.trim()}
+      role="group"
+      aria-label={ariaLabel}
+      onKeyDown={onKeyDown}
+    >
+      {options.map((option, index) => {
+        const active = values.includes(option.value);
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={`chip ${active ? "chip--active" : ""}`}
+            aria-pressed={active}
+            tabIndex={index === tabStop ? 0 : -1}
+            title={option.title}
+            onFocus={() => setFocusIndex(index)}
+            onClick={() => toggle(option.value)}
           >
             {option.label}
           </button>

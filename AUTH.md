@@ -1,144 +1,113 @@
-# API authentication & PSX upstream usage
+# API authentication
 
-This app exposes an HTTP server (`server/index.mjs`) that serves the built React
-SPA and a small set of `/api/*` endpoints. When the server is reachable from the
-public internet (e.g. via an ngrok or Caddy tunnel), the `/api/*` surface must be
-gated with a bearer token — otherwise any URL guesser can read or overwrite
-`portfolio.json` and burn upstream PSX bandwidth.
+The app is deployed as a Cloudflare Worker at a public `*.workers.dev` URL, so
+the `/api/*` surface has to be genuinely closed: `POST /api/portfolio/save`
+replaces the entire portfolio bundle, and `/api/psx/*` burns upstream PSX
+bandwidth.
 
-## How the token gate works
+## What this replaced, and why
 
-- The check is a simple HTTP header comparison on every `/api/*` request: the
-  request must carry `Authorization: Bearer <token>` matching the server's
-  `PSX_API_TOKEN` env var.
-- The frontend sends that header automatically from `apiFetch` (see
-  `src/services/api-url.ts`), reading the token at **build time** from
-  `VITE_PSX_API_TOKEN`. There is no interactive login form — the token is
-  baked into the built JS bundle.
-- If `PSX_API_TOKEN` is unset on the server, the check is bypassed and the
-  server logs:
-  `[psx] PSX_API_TOKEN not set — /api/* is unauthenticated`
-  This preserves the local-dev UX (no token required when running on
-  `127.0.0.1` only).
+Previously the gate was a bearer token compared against `PSX_API_TOKEN`, with the
+matching `VITE_PSX_API_TOKEN` compiled into the JS bundle at build time. That
+worked behind a private ngrok URL but does not survive being public: the token
+shipped inside the bundle, so anyone who loaded the page could read it out of
+devtools and call the API directly. It was, in effect, a public API with an
+extra step.
 
-> **Important**: server token (`PSX_API_TOKEN`) and frontend token
-> (`VITE_PSX_API_TOKEN`) must match. The frontend token is baked at build time,
-> so changing it requires a rebuild.
+**Cloudflare Access would be the better answer and is not available here.**
+Self-hosted Access applications attach to a hostname on a zone in your account,
+and `*.workers.dev` is not such a zone. Access becomes an option the moment a
+custom domain is added — at which point this module can be deleted in favour of
+it.
 
-## Enabling the token (manual / dev)
+## How it works now
 
-```bash
-# Pick any sufficiently random string and use it for both vars
-export PSX_API_TOKEN=$(openssl rand -hex 32)
-export VITE_PSX_API_TOKEN=$PSX_API_TOKEN
+Password login in exchange for a signed session cookie. Implemented in
+`worker/auth.mjs`, wired up in `worker/index.mjs`.
 
-# Rebuild the frontend so the new token is baked into the bundle
-npm run build
+| Piece | Choice |
+|---|---|
+| Password storage | PBKDF2-HMAC-SHA256, random 16-byte salt, stored as `pbkdf2$<iterations>$<salt>$<hash>` |
+| Session | `base64url(payload).HMAC-SHA256(payload, SESSION_SECRET)`, 30-day expiry |
+| Cookie | `HttpOnly; Secure; SameSite=Strict; Path=/` |
+| Comparison | Constant-time, on both the password digest and the session signature |
+| Throttle | Per-IP (`CF-Connecting-IP`), 5 failures per 15 min, then a lockout doubling to a 1-hour cap |
 
-# Start the server with the token in its env
-node server/index.mjs
+`HttpOnly` keeps the session out of reach of any injected script — the page never
+holds a credential it could leak, which is the specific failure of the old
+scheme. `SameSite=Strict` is what stops a cross-site POST to `/api/portfolio/save`.
+
+The gate **fails closed**: if `SESSION_SECRET` is unset the Worker returns 503 for
+every API request rather than falling open. The old token gate did the opposite,
+silently serving an unauthenticated API when the token was missing.
+
+Cron invocations do not pass through the HTTP gate, so the nightly snapshot is
+unaffected by any of this.
+
+### About the iteration count
+
+`PBKDF2_ITERATIONS` is **50,000**, not the 210,000 OWASP recommends. This is a
+deliberate constraint, not an oversight: the Workers free plan allows 10ms of CPU
+per invocation, and 210k iterations exceeds it — the derivation is killed
+mid-flight. When that first happened it surfaced as every correct password being
+rejected with a plain 401.
+
+The trade is compensated on the password side. `scripts/hash-password.mjs`
+enforces a minimum length, and the deployed password is 130 bits of randomness,
+so offline attack is infeasible on entropy alone even at a reduced KDF cost.
+**If this Worker ever moves to a paid plan (30s CPU), raise the constant back
+toward 210,000** — it is a one-line change plus a re-hash.
+
+## Setting or rotating the password
+
+```sh
+# Derive a hash. The plaintext is never written to disk and never given to
+# wrangler — only the derived hash leaves this command.
+node scripts/hash-password.mjs
+# → pbkdf2$50000$<salt>$<hash>
+
+npx wrangler secret put APP_PASSWORD_HASH   # paste the hash
 ```
 
-Verify:
+The session secret is independent and only needs setting once:
 
-```bash
-curl -i http://localhost:3000/api/portfolio/load
-# → HTTP/1.1 401 Unauthorized
-
-curl -i -H "Authorization: Bearer $PSX_API_TOKEN" \
-     http://localhost:3000/api/portfolio/load
-# → HTTP/1.1 200 OK
+```sh
+openssl rand -hex 32 | npx wrangler secret put SESSION_SECRET
 ```
 
-## Enabling via docker-compose
+Rotating `SESSION_SECRET` invalidates every existing session immediately, which
+is the fastest way to force a logout everywhere.
 
-`docker-compose.yml` already passes `PSX_API_TOKEN` from the shell env in two
-places: as a build ARG (so the frontend bundle gets the matching
-`VITE_PSX_API_TOKEN`) and as a runtime env var on the container.
+## Verifying
 
-```bash
-# One-shot
-PSX_API_TOKEN=$(openssl rand -hex 32) docker compose up -d --build
+```sh
+BASE=https://psx-portfolio.saadofficial0999.workers.dev
 
-# Or persist it in an .env file next to docker-compose.yml
-echo "PSX_API_TOKEN=$(openssl rand -hex 32)" > .env
-docker compose up -d --build
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/api/portfolio/load          # 401
+curl -s -c jar -X POST -H 'Content-Type: application/json' \
+     -d '{"password":"<password>"}' $BASE/api/auth/login                    # {"ok":true}
+curl -s -o /dev/null -w '%{http_code}\n' -b jar $BASE/api/portfolio/load    # 200
+curl -s -X POST -b jar -c jar $BASE/api/auth/logout                         # {"ok":true}
+curl -s -o /dev/null -w '%{http_code}\n' -b jar $BASE/api/portfolio/load    # 401
 ```
 
-Rotating the token: regenerate, re-`up --build` (frontend must be rebuilt so
-the new token is baked in).
+The SPA itself stays publicly readable — only `/api/*` is gated. The login screen
+(`src/components/LoginGate.tsx`) renders until `/api/auth/me` reports a valid
+session.
 
-## Disabling the token (local-only deployments)
+## Known limitations
 
-Unset both env vars and rebuild:
+- **The throttle is best-effort.** Without Durable Objects there is no
+  strongly-consistent counter, so concurrent attempts can race and let an extra
+  try through. Acceptable when each guess must still beat PBKDF2 against a
+  130-bit password; worth revisiting if this ever becomes multi-user.
+- **Single shared password, no user accounts.** This is a single-user dashboard;
+  anything more would be building an identity system where a password suffices.
+- **No password reset flow.** Rotation is the `wrangler secret put` above.
 
-```bash
-unset PSX_API_TOKEN VITE_PSX_API_TOKEN
-npm run build
-node server/index.mjs    # → logs "PSX_API_TOKEN not set …"
-```
+## Running on Node
 
-The server will accept all `/api/*` requests. Only safe when `127.0.0.1:3000`
-is not reachable from outside the host.
-
-## Frontend behavior when the token is wrong / missing
-
-There is no login UI. A wrong/missing token results in `401` on every API call.
-Visible symptoms in the browser:
-
-- "Disk load failed: HTTP 401" toast on page load.
-- "Disk save failed: HTTP 401 (kept in browser)" toast on any state change.
-- "Price refresh failed: API returned 401" toast when clicking Refresh.
-
-If you want a real login prompt (HTTP Basic, or a login page), that's a
-separate change — Caddy's `basicauth` directive is the simplest path; wire it
-into `deploy/Caddyfile`.
-
----
-
-## PSX upstream APIs in use
-
-The server proxies two upstream data sources. Neither requires its own API key.
-
-### `psxterminal.com` (live market data + dividends)
-
-Called server-side only from `server/api.mjs`:
-
-| Server route                  | Upstream call                                          | Defined at        |
-| ----------------------------- | ------------------------------------------------------ | ----------------- |
-| `GET /api/psx/market-data`    | `GET https://psxterminal.com/api/fundamentals/{ticker}`| `api.mjs:39`      |
-| `GET /api/psx/dividends`      | `GET https://psxterminal.com/api/dividends/{ticker}`   | `api.mjs:58`      |
-
-Behavior:
-
-- Both routes accept `?tickers=A,B,C` and fan out one upstream request per
-  ticker via `Promise.all` (no batching, no rate limiting).
-- Both swallow upstream failures per-ticker (returning `null`, filtered out
-  before the response) and `console.warn` the failure for ops visibility.
-- Frontend callers: `fetchMarketData` and `fetchDividends` in
-  `src/services/psx-scraper.ts`, used by the "Refresh prices" button in
-  `App.tsx`.
-
-### `dps.psx.com.pk` (official PSX market-watch HTML, offline scrape)
-
-Used **only** by the offline script `scripts/fetch-stocks.mjs` (run via
-`npm run fetch-stocks`). It scrapes the market-watch HTML page to populate
-the local SQLite `stocks` + `sectors` tables.
-
-| Script                  | Upstream call                                  | Defined at              |
-| ----------------------- | ---------------------------------------------- | ----------------------- |
-| `scripts/fetch-stocks`  | `GET https://dps.psx.com.pk/market-watch`      | `fetch-stocks.mjs:12`   |
-
-Behavior:
-
-- Regex-based HTML parser — fragile if PSX changes their markup.
-- Runs on demand only (no cron). The server never calls this URL at request
-  time; it only reads the resulting SQLite DB via the read-only
-  `GET /api/psx/stocks` endpoint (`api.mjs` after the migrations refactor).
-
-### Endpoints that do **not** touch any upstream
-
-- `GET /api/portfolio/load` — reads `data/portfolio.json` from disk.
-- `POST /api/portfolio/save` — writes `data/portfolio.json` (rotated through 5
-  `.bak.N` generations, serialized through an in-process queue).
-- `GET /api/psx/stocks` — reads from local SQLite, no network.
+`server/index.mjs` (the Docker/VPS rollback path) still uses the original
+`PSX_API_TOKEN` bearer check. That path is not internet-facing — it exists so the
+deployment can be rolled back — and the token gate is adequate behind a private
+tunnel. If it is ever exposed publicly again, port the cookie gate to it first.

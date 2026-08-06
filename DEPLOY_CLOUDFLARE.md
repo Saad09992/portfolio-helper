@@ -3,8 +3,10 @@
 Plan for moving this app off the Docker/VPS setup (`Dockerfile`, `deploy/Caddyfile`,
 ngrok) and onto Cloudflare Workers.
 
-**Status:** planning. Nothing here is implemented yet. Gated on the egress probe
-in [Step 0](#step-0-egress-probe-gate).
+**Status:** deployed and live at
+`https://psx-portfolio.saadofficial0999.workers.dev`. This document describes the
+migration as built; see [What changed during implementation](#what-changed-during-implementation)
+for where reality diverged from the original plan.
 
 ---
 
@@ -63,14 +65,14 @@ ngrok ──> Caddy :80 ──> Docker container :3000 (node server/index.mjs)
 **After**
 
 ```
-Cloudflare Access (identity gate)
-        │
-        ▼
-     Worker
-       ├── fetch()     ── Hono ── /api/*
-       │                    └── env.DB           (D1)
-       ├── assets      ── dist/                  (Workers Assets, SPA fallback)
-       └── scheduled() ── runDailySync()         (Cron Trigger, 59 18 * * * UTC)
+     Worker  (psx-portfolio.saadofficial0999.workers.dev)
+       ├── fetch()     ── Hono
+       │                    ├── /api/auth/*   session cookie issue / verify
+       │                    ├── /api/*        gated on that cookie, fails closed
+       │                    └── env.DB        (D1)
+       ├── assets      ── dist/client         (Workers Assets, SPA fallback)
+       └── scheduled() ── runDailySync()      (Cron Trigger, 59 18 * * * UTC)
+                            └── bypasses the HTTP gate entirely
 ```
 
 ---
@@ -396,3 +398,110 @@ Resolved during planning:
   (`PSO` and `SYS`, `asOf` today). The 19-month-stale reading seen on `ENGRO` during
   planning is a dead symbol, not a parser fault; ENGRO is not in the portfolio. No
   impact on the cron freshness gate.
+
+---
+
+## What changed during implementation
+
+Recorded because each of these was discovered by testing rather than reasoning,
+and the plan above still reads as originally written in places.
+
+### The egress probe failed, and reshaped the source chain
+
+`dps.psx.com.pk` is **not usable from Cloudflare Workers**. Its two dynamic
+endpoints — `/timeseries/eod/KSE100` and `/company/<ticker>`, the only two used —
+return `error code: 520` from CF egress, while its own homepage serves fine from
+the same colo. Measured: 0/30 successes on the SIN colo, later failing on MCT
+too. From the VPS: 0/12 failures. Retries do not help, because the failure is
+per-colo rather than per-request, and a cron trigger cannot choose its colo.
+
+Consequences:
+
+- **Quotes** needed no change. `fetchQuoteResilient()` already falls back to
+  sarmaaya, which is healthy from CF and parses correctly for the held tickers.
+- **KSE100 had no fallback at all** and would simply have stopped working.
+  `fetchKse100()` now falls back to the `www.psx.com.pk` home page, which
+  server-renders the index table with stable ids (`curIndex`, `percentchange`,
+  and a `cahnge` typo matched verbatim). `parsePsxIndexPage()` covers it.
+- dps is deliberately kept as the *primary* in both chains. It fails fast (~700ms
+  per 520, not a timeout) and costs 2 of the 50-subrequest budget, in exchange for
+  resuming automatically if it ever recovers.
+
+The fallback carries no `series`, unlike the dps timeseries. Nothing consumes it:
+`/api/psx/benchmark?history` has no caller, and `fetchBenchmark()` reads only
+`current`. Called out so a future series consumer is not surprised.
+
+### The freshness gate would have silently stopped snapshotting
+
+`quoteFreshness()` marks a quote stale unless `asOf >= 15:30 PKT`. That assumes a
+per-trade timestamp, which is what dps reports. Sarmaaya instead reports a single
+shared refresh stamp — observed **identical to the millisecond** across different
+tickers. With dps unreachable, every nightly run would have classified all quotes
+stale and skipped, visible only as history that quietly stopped growing.
+
+`runDailySync()` now relaxes the gate when **every** quote came from a fallback
+source, logs loudly which rule applied, and reports it as `freshnessRule` in the
+result. `server/cron-sync.test.mjs` covers all branches.
+
+**Known gap, deliberate:** a *mixed* run (one primary quote, one fallback) stays
+strict. The shared-stamp justification does not apply when a trustworthy
+timestamp is present. Given dps fails wholesale rather than per-ticker, mixed
+runs should not occur — but if they did, that run would skip.
+
+### Cloudflare Access turned out to be unavailable
+
+Self-hosted Access applications attach to a hostname on a zone in the account;
+`*.workers.dev` is not one, and there is no custom domain here. Replaced with a
+password login and an HMAC-signed `HttpOnly` session cookie — see `AUTH.md` for
+the full design, including why `PBKDF2_ITERATIONS` is 50,000 rather than the
+recommended 210,000 (the free plan's 10ms CPU ceiling).
+
+That CPU limit produced the migration's most misleading bug: the KDF was killed
+mid-derivation, a catch-all turned the failure into `false`, and every correct
+password came back as a plain 401. `verifyPassword()` now lets derivation
+failures propagate so an outage reports 503 instead of impersonating a wrong
+password, with a regression test that mocks `deriveBits` into failing.
+
+### The Node path was kept, not deleted
+
+The plan called for `server/index.mjs` to be replaced. It was ported instead,
+onto the sqlite adapter — the rollback section promised the Docker path stays
+runnable, and deleting the entry would have made that false. `Dockerfile`,
+`docker-compose.yml` and `deploy/Caddyfile` are untouched.
+
+### Build layout moved
+
+`@cloudflare/vite-plugin` emits the client bundle to `dist/client` and a
+deployable worker config to `dist/psx_portfolio/wrangler.json`. So:
+
+- deploys run `wrangler deploy -c dist/psx_portfolio/wrangler.json` (`npm run cf:deploy`)
+- `server/index.mjs` serves from `dist/client`
+- `npm run build` cleans `dist/` first — stale artifacts from a previous build
+  would otherwise be uploaded as live assets
+- the plugin is skipped under Vitest, which rejects its Node externals
+
+### Assets intercept navigation before the Worker
+
+With `not_found_handling: "single-page-application"`, the asset layer handles
+navigation-style requests before the Worker sees them. That is why SPA deep links
+work, and also why `wrangler dev --test-scheduled`'s `/__scheduled` hook is
+unreachable — it is swallowed by the SPA fallback. The scheduled path is covered
+by `server/cron-sync.test.mjs` instead.
+
+## Verification performed
+
+| Check | Result |
+|---|---|
+| Full test suite | 270 passing, 20 files |
+| D1 row parity vs. local SQLite | Exact across all 7 tables |
+| Save → load round-trip through D1 | Byte-identical |
+| SPA, deep link, static asset | 200 |
+| API unauthenticated / bad cookie / forged cookie | 401 |
+| Login wrong password | 401 |
+| Login correct password → API → logout → API | 200 → 200 → 200 → 401 |
+| Cookie flags | `HttpOnly; Secure; SameSite=Strict; Max-Age=2592000` |
+| Cron trigger registered | `schedule: 59 18 * * *` |
+
+Still unverified, and only time can: **the first live cron firing at 23:59 PKT.**
+Watch it with `npm run cf:tail` and expect a `[psx:cron] synced:` line reporting
+`freshness=relaxed-fallback` while dps remains unreachable.

@@ -46,3 +46,6 @@ Thumbs.db
 
 # Cloudflare / Wrangler
 .wrangler/
+
+# Local Worker secrets
+.dev.vars

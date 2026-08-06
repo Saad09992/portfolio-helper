@@ -3720,3 +3720,65 @@ input::placeholder {
   color: var(--muted-2);
   opacity: 1;
 }
+
+/* ---------------------------------------------------------------------------
+   Login gate. Shown before the app shell mounts, so it deliberately reuses the
+   existing panel/button tokens rather than introducing a second visual system.
+   --------------------------------------------------------------------------- */
+
+.login-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.login-checking {
+  color: var(--text-dim, #8b97a8);
+  font-size: 0.9rem;
+}
+
+.login-card {
+  width: min(26rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 2rem;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-panel);
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.login-copy {
+  margin: 0 0 0.5rem;
+  color: var(--text-dim, #8b97a8);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.login-input {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  background: var(--panel-2);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+}
+
+.login-input:focus-visible {
+  outline: 2px solid var(--accent, #4c8dff);
+  outline-offset: 1px;
+}
+
+.login-error {
+  margin: 0;
+  color: var(--danger, #ff6b6b);
+  font-size: 0.85rem;
+}

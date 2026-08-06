@@ -228,7 +228,13 @@ export function replayLedger(
         const proceeds = value - fees.total;
         pos.shares -= shares;
         pos.cost -= costTotal;
-        pos.realized += proceeds - cgtTotal - costTotal;
+        // Trading result only. Deducting the per-slice CGT here would charge a
+        // gross, pre-netting figure against a position that may owe nothing
+        // once the year's losses and any carry-forward are applied — and the
+        // money has not left the account either way. The real liability is the
+        // netted `cgtDue`, which is a fiscal-year total and cannot be split
+        // across positions; `cgtReserve` reports what is still owed.
+        pos.realized += proceeds - costTotal;
         pos.feesPaid += fees.total;
         pos.taxesPaid += cgtTotal;
         pos.returned += proceeds;

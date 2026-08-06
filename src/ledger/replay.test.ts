@@ -91,7 +91,10 @@ describe("SELL", () => {
     expect(slice.cgtRatePct).toBe(15);
     expect(slice.cgt).toBe(29_254);
 
-    expect(p.realized).toBe(165_773); // gain − cgt
+    // Realized is the trading result, before tax — equal to the slice's gain.
+    // CGT is accrued alongside it, not deducted from it.
+    expect(p.realized).toBe(195_027);
+    expect(p.realized).toBe(slice.gain);
     expect(p.taxesPaid).toBe(29_254); // accrued, not paid
 
     // Cash matches what the broker credits: gross less brokerage, CGT untouched.
@@ -118,7 +121,7 @@ describe("SELL", () => {
     expect(p.cost).toBe(100_430); // half of the second lot's remaining cost
     expect(p.lots).toHaveLength(1);
     expect(p.lots[0].date).toBe("2025-02-10");
-    expect(p.realized).toBe(337_563);
+    expect(p.realized).toBe(397_133); // proceeds after fees, less the cost consumed
   });
 
   it("books a loss with zero CGT", () => {
@@ -317,6 +320,35 @@ describe("RIGHT", () => {
     expect(p.shares).toBe(50);
     expect(p.cost).toBe(250_000);
     expect(p.feesPaid).toBe(0);
+  });
+});
+
+describe("accounting identity", () => {
+  /**
+   * Deposits + P&L must equal what the account is worth, or a headline figure
+   * is inventing or destroying money. Accrued CGT used to be subtracted from
+   * `realized` while cash kept it, so the two sides disagreed by exactly the
+   * tax booked — money the user had not spent and, after loss set-off, might
+   * never owe.
+   */
+  it("keeps deposits + realized + unrealized equal to cash + market value", () => {
+    const price = 13000;
+    const state = replayLedger(
+      [
+        txn("DEPOSIT", "2025-01-01", { ticker: "", amount: 2_000_000 }),
+        txn("BUY", "2025-01-10", { shares: 100, price: 10000 }),
+        txn("SELL", "2025-06-10", { shares: 60, price: 12000 }), // banks a gain
+        txn("BUY", "2025-07-01", { shares: 20, price: 11000 }),
+      ],
+      cfg,
+    );
+    const p = pos(state);
+
+    expect(state.realized.some((r) => r.cgt > 0)).toBe(true); // tax was accrued
+    const marketValue = p.shares * price;
+    const unrealized = marketValue - p.cost;
+
+    expect(2_000_000 + p.realized + unrealized).toBe(state.cash + marketValue);
   });
 });
 

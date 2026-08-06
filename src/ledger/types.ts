@@ -179,7 +179,13 @@ export type PositionState = {
   shares: number;
   /** paisa, fee-inclusive (sum of `lots[].cost`) */
   cost: number;
-  /** paisa — net realized P&L: proceeds − fees − cost − accrued cgt */
+  /**
+   * paisa — realized trading P&L: proceeds − fees − cost.
+   *
+   * Before tax. CGT is accrued per slice but netted across the fiscal year, so
+   * it belongs to `TaxYear.cgtDue` rather than to any one position — see
+   * `cgtReserve` for what is actually owed.
+   */
   realized: number;
   /** paisa — net dividends received */
   dividends: number;

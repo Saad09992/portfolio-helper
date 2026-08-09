@@ -45,6 +45,7 @@ import {
   computeBenchmarkStats,
   isRangeKey,
   sliceSnapshots,
+  RANGE_DESCRIPTIONS,
   type RangeKey,
 } from "./analytics";
 import {
@@ -60,10 +61,17 @@ import {
   loadTargets,
   loadTargetPresets,
   saveTargetPresets,
+  loadViewMode,
+  saveViewMode,
+  loadMoneyHidden,
+  saveMoneyHidden,
   normalizeTarget,
   targetStorageKey,
   type TargetPreset,
 } from "./portfolio/storage";
+import type { ViewMode } from "./overviewBands";
+import { buildAllocationSlices } from "./portfolio/allocation";
+import { setMoneyHidden } from "./privacy";
 import { useLedger } from "./hooks/useLedger";
 import { buildLedgerSummary } from "./ledger/summary";
 import { useHashRoute } from "./hooks/useHashRoute";
@@ -73,7 +81,7 @@ import {
   affectsLaterSales,
   describeTransactionWithDate,
 } from "./ledger/describe";
-import { CopySummaryButton } from "./components/CopySummaryButton";
+import { DataMenu } from "./components/DataMenu";
 import { CommandPalette } from "./components/CommandPalette";
 import type { PortfolioSummaryInput } from "./portfolio/summary";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -147,6 +155,38 @@ function App() {
   const [targets, setTargets] = useState<TargetAllocation[]>(() => loadTargets());
   const [targetDraft, setTargetDraft] = useState<DraftTarget>(emptyTargetDraft);
   const [targetPresets, setTargetPresets] = useState<TargetPreset[]>(() => loadTargetPresets());
+  // How much of the Overview page to show. Deliberately NOT in the hash: the
+  // range and allocation toggles describe how you are looking at one panel and
+  // are meant to be shareable, whereas this is a standing preference — and
+  // `setPage` clears every query param, so a hash-backed mode would reset each
+  // time you left the page and came back.
+  const [viewMode, setViewModeState] = useState<ViewMode>(() => loadViewMode());
+  const setViewMode = useCallback((mode: ViewMode) => {
+    setViewModeState(mode);
+    saveViewMode(mode);
+  }, []);
+
+  // Hidden mode masks every rupee figure — see `src/privacy.ts` for why the
+  // masking lives in the formatters rather than in props.
+  //
+  // Seeding the module store from inside the lazy initializer is deliberate: an
+  // effect would run after the first paint, so a reload with the mode on would
+  // flash the real numbers before hiding them, which is the one thing this
+  // feature exists to prevent. Setting the same value twice under StrictMode is
+  // a no-op.
+  const [moneyHidden, setMoneyHiddenState] = useState(() => {
+    const stored = loadMoneyHidden();
+    setMoneyHidden(stored);
+    return stored;
+  });
+  const toggleMoneyHidden = useCallback(() => {
+    setMoneyHiddenState((current) => {
+      const next = !current;
+      setMoneyHidden(next);
+      saveMoneyHidden(next);
+      return next;
+    });
+  }, []);
   // Navigation and view state live in the location hash — see `src/routes.ts`.
   // Toggles are derived from `route.query` but keep the same prop signatures the
   // pages already expect, so nothing downstream changes shape.
@@ -596,100 +636,46 @@ function App() {
     [ledger.stockRows, contributions, ledger.state.expenses, ledger.state.taxPaid],
   );
 
-  /** Combined weight of the three largest positions — concentration at a glance. */
-  const top3Weight = useMemo(
-    () =>
-      [...nonCashPortfolio]
-        .sort((a, b) => b.weight - a.weight)
-        .slice(0, 3)
-        .reduce((sum, h) => sum + h.weight, 0),
+  /**
+   * Combined weight of the three largest positions — concentration at a glance.
+   *
+   * Measured against invested value, not the whole account, because this line
+   * is printed directly under the treemap whose tiles now sum to 100% of
+   * positions. Holding cash is not diversification, so counting it here would
+   * also flatter the number.
+   */
+  const positionWeights = useMemo(
+    () => buildAllocationSlices(nonCashPortfolio, "ticker", "market"),
     [nonCashPortfolio],
   );
-
-  const summaryInput: PortfolioSummaryInput = useMemo(() => {
-    const twrIdx = computeTwrIndex(history);
-    const twrLatest = twrIdx.length >= 2 ? twrIdx[twrIdx.length - 1] : null;
-
-    return {
-      generatedAt: new Date().toISOString(),
-      lastFetchedAt,
-      totals: {
-        totalValue: portfolio.totalValue,
-        equityMarketValue,
-        totalCost: totalInvested,
-        unrealizedPnL: portfolio.totalGainLoss,
-        dayPnL,
-      },
-      cash: { available: effectiveCash.available, weight: cashWeight },
-      holdings: nonCashPortfolio,
-      sectors,
-      targets: targetRows.map((r) => ({
-        mode: r.mode,
-        key: r.key,
-        currentWeight: r.currentWeight,
-        targetWeight: r.targetWeight,
-        drift: r.drift,
-        absDrift: r.absDrift,
-        gapValue: r.gapValue,
-        status: r.status,
-      })),
-      upcomingDividends: upcomingDividends.map((u) => ({
-        ticker: u.ticker,
-        date: u.date,
-        dps: u.dps,
-        expectedIncome: u.holding.shares * u.dps,
-      })),
-      investments: investmentSummary,
-      investmentLedger: investments,
-      history,
-      twrLatest,
-      stocks: ledger.stockRows,
-      taxYears: ledger.taxYears,
-      transactions: ledger.transactions,
-      realized: ledger.state.realized,
-      dividends: ledger.state.dividends,
-      bonusTaxes: ledger.state.bonusTaxes,
-      feeConfig: ledger.feeConfig,
-    };
-  }, [
-    nonCashPortfolio,
-    portfolio,
-    equityMarketValue,
-    totalInvested,
-    effectiveCash.available,
-    cashWeight,
-    sectors,
-    targetRows,
-    upcomingDividends,
-    investmentSummary,
-    investments,
-    history,
-    lastFetchedAt,
-    ledger.stockRows,
-    ledger.taxYears,
-    ledger.transactions,
-    ledger.state,
-    ledger.feeConfig,
-  ]);
+  const top3Weight = useMemo(
+    () => positionWeights.slice(0, 3).reduce((sum, slice) => sum + slice.marketWeight, 0),
+    [positionWeights],
+  );
+  /** The largest position's share of invested value — same denominator as above. */
+  const topHoldingWeight = positionWeights[0]?.marketWeight ?? 0;
 
 
+
+  // Same source as the allocation donut, so the two panels in the Allocation
+  // band cannot disagree about a sector's share. `sectors` is deliberately NOT
+  // used here: it carries the cash pseudo-holding and weights measured against
+  // the whole account, and it feeds `sectorWeightMap` — changing it would move
+  // every sector target's drift on the Targets page.
+  //
+  // Keys are tickers rather than holding ids in ticker mode: an id is
+  // `ledger-LUCK`, and the tile's link runs it through `stockHref`, which was
+  // producing `#/stocks/ledger-LUCK`.
   const treemapItems = useMemo(() => {
-    if (treemapMode === "sector") {
-      return sectors.map((sector) => ({
-        key: sector.sector,
-        label: sector.sector,
-        value: sector.value,
-        weight: sector.weight,
-      }));
-    }
-
-    return portfolio.holdings.slice(0, UI_LIMITS.TREEMAP_TOP_N).map((holding) => ({
-      key: holding.id,
-      label: holding.ticker,
-      value: holding.marketValue,
-      weight: holding.weight,
+    const slices = buildAllocationSlices(nonCashPortfolio, treemapMode, "market");
+    const capped = treemapMode === "ticker" ? slices.slice(0, UI_LIMITS.TREEMAP_TOP_N) : slices;
+    return capped.map((slice) => ({
+      key: slice.key,
+      label: slice.label,
+      value: slice.marketValue,
+      weight: slice.marketWeight,
     }));
-  }, [treemapMode, sectors, portfolio.holdings]);
+  }, [treemapMode, nonCashPortfolio]);
 
   const savingsStats = useMemo(
     () => computeSavingsStats(investmentRows, portfolio.totalValue),
@@ -765,6 +751,95 @@ function App() {
     () => windowedHistory.map((s) => s.gainLoss),
     [windowedHistory],
   );
+
+  const summaryInput: PortfolioSummaryInput = useMemo(() => {
+    const twrIdx = computeTwrIndex(history);
+    const twrLatest = twrIdx.length >= 2 ? twrIdx[twrIdx.length - 1] : null;
+
+    return {
+      generatedAt: new Date().toISOString(),
+      lastFetchedAt,
+      totals: {
+        totalValue: portfolio.totalValue,
+        equityMarketValue,
+        totalCost: totalInvested,
+        unrealizedPnL: portfolio.totalGainLoss,
+        dayPnL,
+      },
+      cash: { available: effectiveCash.available, weight: cashWeight },
+      holdings: nonCashPortfolio,
+      sectors,
+      targets: targetRows.map((r) => ({
+        mode: r.mode,
+        key: r.key,
+        currentWeight: r.currentWeight,
+        targetWeight: r.targetWeight,
+        drift: r.drift,
+        absDrift: r.absDrift,
+        gapValue: r.gapValue,
+        status: r.status,
+      })),
+      upcomingDividends: upcomingDividends.map((u) => ({
+        ticker: u.ticker,
+        date: u.date,
+        dps: u.dps,
+        expectedIncome: u.holding.shares * u.dps,
+      })),
+      investments: investmentSummary,
+      investmentLedger: investments,
+      history,
+      twrLatest,
+      stocks: ledger.stockRows,
+      taxYears: ledger.taxYears,
+      transactions: ledger.transactions,
+      realized: ledger.state.realized,
+      dividends: ledger.state.dividends,
+      bonusTaxes: ledger.state.bonusTaxes,
+      feeConfig: ledger.feeConfig,
+      // The Overview dashboard's own numbers, so a pasted summary says what the
+      // page says rather than a thinner version of it.
+      ledgerSummary,
+      risk: riskMetrics,
+      benchmark: benchmarkStats,
+      savings: savingsStats,
+      rangeLabel: RANGE_DESCRIPTIONS[range],
+      riskWindowSnapshots: windowedHistory.length,
+      top3Weight,
+      cashDetail: {
+        cgtReserve: ledger.cgtReserve,
+        withheld: ledger.feeConfig.withheldCash,
+        deployable:
+          effectiveCash.available - ledger.feeConfig.withheldCash - ledger.cgtReserve,
+      },
+    };
+  }, [
+    nonCashPortfolio,
+    portfolio,
+    equityMarketValue,
+    totalInvested,
+    effectiveCash.available,
+    cashWeight,
+    sectors,
+    targetRows,
+    upcomingDividends,
+    investmentSummary,
+    investments,
+    history,
+    lastFetchedAt,
+    ledger.stockRows,
+    ledger.taxYears,
+    ledger.transactions,
+    ledger.state,
+    ledger.feeConfig,
+    ledger.cgtReserve,
+    ledgerSummary,
+    riskMetrics,
+    benchmarkStats,
+    savingsStats,
+    range,
+    windowedHistory,
+    top3Weight,
+  ]);
 
   function addManualHolding(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1287,32 +1362,30 @@ function App() {
           ) : null}
           <button
             type="button"
+            className={`button ${moneyHidden ? "button-active" : ""}`.trim()}
+            onClick={toggleMoneyHidden}
+            aria-pressed={moneyHidden}
+            title={
+              moneyHidden
+                ? "Show rupee amounts again"
+                : "Mask every rupee amount — percentages and weights stay visible"
+            }
+          >
+            {moneyHidden ? "Show amounts" : "Hide amounts"}
+          </button>
+          <button
+            type="button"
             className="button button-primary"
             onClick={refreshPrices}
             disabled={fetching || effectiveHoldings.length === 0}
           >
             {fetching ? "Fetching..." : "Refresh prices"}
           </button>
-          <button type="button" className="button" onClick={exportPortfolio}>
-            Export
-          </button>
-          <CopySummaryButton
+          <DataMenu
             summaryInput={summaryInput}
-            disabled={effectiveHoldings.length === 0}
-          />
-          <label className="button" htmlFor="import-portfolio-file">
-            Import
-          </label>
-          <input
-            id="import-portfolio-file"
-            className="sr-only"
-            type="file"
-            accept=".json,application/json"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) importPortfolio(file);
-              event.target.value = "";
-            }}
+            onExport={exportPortfolio}
+            onImport={importPortfolio}
+            copyDisabled={effectiveHoldings.length === 0}
           />
         </div>
       </section>
@@ -1348,7 +1421,9 @@ function App() {
           costBasis={totalInvested}
           nonCashCount={nonCashPortfolio.length}
           portfolio={portfolio}
+          nonCashHoldings={nonCashPortfolio}
           topHolding={topHolding}
+          topHoldingWeight={topHoldingWeight}
           cashDraft={effectiveCash}
           cashWeight={cashWeight}
           investmentSummary={investmentSummary}
@@ -1380,6 +1455,8 @@ function App() {
           ledgerCash={effectiveCash.available}
           dayPnL={dayPnL}
           top3Weight={top3Weight}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
         />
       )}
 

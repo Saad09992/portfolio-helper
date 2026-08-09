@@ -124,19 +124,17 @@ button {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
 }
 
+/* A nameplate, not a card. The page used to open with three bordered rows
+   stacked before the first number; this one and the nav below it dropped their
+   borders so the only panels left on screen are the data. */
 .hero-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 16px 22px;
-  border: 1px solid var(--panel-border);
-  border-radius: 18px;
-  background: linear-gradient(
-    145deg,
-    rgba(14, 26, 46, 0.9),
-    rgba(12, 18, 34, 0.82)
-  );
+  padding: 0;
+  border: 0;
+  background: none;
   flex-wrap: wrap;
 }
 
@@ -153,40 +151,43 @@ button {
   text-transform: uppercase;
 }
 
+/* Tabs on a rule rather than pills in a box: the active page is marked by an
+   underline, so the strip reads as navigation instead of a second panel. */
 .page-nav {
   display: flex;
-  gap: 4px;
-  padding: 5px;
-  border: 1px solid var(--panel-border);
-  border-radius: 14px;
-  background: rgba(4, 8, 18, 0.5);
+  align-items: center;
+  gap: 28px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 1px solid var(--panel-border);
+  background: none;
   overflow-x: auto;
 }
 
 .page-nav-tab {
-  flex: 1;
-  min-width: 110px;
+  flex: 0 0 auto;
   border: none;
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--muted);
-  padding: 9px 14px;
-  border-radius: 10px;
+  padding: 12px 0;
+  border-radius: 0;
   font-size: 0.88rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 140ms ease;
+  white-space: nowrap;
+  transition: color 140ms ease, border-color 140ms ease;
 }
 
 .page-nav-tab:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.03);
+  background: transparent;
 }
 
 .page-nav-tab--active {
   color: var(--text);
-  background: linear-gradient(145deg, rgba(0, 230, 118, 0.18), rgba(0, 230, 118, 0.06));
-  border: 1px solid rgba(0, 230, 118, 0.35);
-  padding: 8px 13px;
+  background: transparent;
+  border-bottom-color: var(--accent);
 }
 
 .hero-grid {
@@ -245,11 +246,22 @@ button {
   font-size: 1rem;
 }
 
+/* Shrinks only when it genuinely has to. An earlier `flex-basis: 260px` here
+   made the title wrap to two lines at ordinary widths. */
+.hero-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* `margin-left: auto` rather than the parent's `space-between`: it pins the
+   actions to the right edge whether or not they end up sharing the title's
+   line, so a wrap changes how much fits, not where the block lives. */
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  justify-content: flex-start;
+  justify-content: flex-end;
+  margin-left: auto;
 }
 
 .button {
@@ -2646,12 +2658,12 @@ th {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.copy-summary-wrap {
+.action-menu-wrap {
   position: relative;
   display: inline-block;
 }
 
-.copy-summary-menu {
+.action-menu {
   position: absolute;
   right: 0;
   top: calc(100% + 6px);
@@ -2668,7 +2680,7 @@ th {
   backdrop-filter: blur(10px);
 }
 
-.copy-summary-item {
+.action-menu-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -2682,18 +2694,31 @@ th {
   transition: background 140ms ease;
 }
 
-.copy-summary-item:hover,
-.copy-summary-item:focus-visible {
+.action-menu-item:hover:not(:disabled),
+.action-menu-item:focus-visible {
   background: rgba(0, 230, 118, 0.12);
   outline: none;
 }
 
-.copy-summary-item-label {
+.action-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Copy actions above, backup actions below — the rule marks where "put this on
+   the clipboard" ends and "write a file" begins. */
+.action-menu-sep {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--panel-border);
+}
+
+.action-menu-item-label {
   font-weight: 600;
   font-size: 0.92rem;
 }
 
-.copy-summary-item-hint {
+.action-menu-item-hint {
   font-size: 0.84rem;
   color: var(--muted);
 }
@@ -2705,9 +2730,8 @@ th {
 
 /* ---- Hero bar: flat strip with bottom rule ---- */
 .hero-bar {
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius);
+  background: none;
+  border: 0;
   box-shadow: none;
 }
 .hero-title h1 {
@@ -2724,6 +2748,11 @@ th {
 .hero-actions {
   align-items: center;
   gap: var(--s2);
+}
+/* Tighter than a body button: six of these plus the status chip share one row,
+   and the row should have headroom for a seventh rather than collapsing. */
+.hero-actions .button {
+  padding: var(--s2) var(--s3);
 }
 .hero-status {
   display: inline-flex;
@@ -2744,25 +2773,27 @@ th {
   box-shadow: 0 0 8px var(--accent);
 }
 
-/* ---- Page nav: terminal tabs ---- */
+/* ---- Page nav: terminal tab strip ---- */
 .page-nav {
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius);
-  padding: var(--s1);
-  gap: var(--s1);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--panel-border);
+  border-radius: 0;
+  padding: 0 var(--s1);
+  gap: var(--s5);
 }
 .page-nav-tab {
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-size: 0.81rem;
   font-weight: 600;
   color: var(--muted);
   background: transparent;
-  border: 1px solid transparent;
-  padding: var(--s2) var(--s3);
-  transition: color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: var(--s3) 0;
+  transition: color 120ms ease, border-color 120ms ease;
 }
 .page-nav-tab:hover {
   color: var(--text);
@@ -2770,9 +2801,9 @@ th {
 }
 .page-nav-tab--active {
   color: var(--accent);
-  background: var(--accent-dim);
-  border-color: rgba(0, 230, 118, 0.4);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  background: transparent;
+  border-bottom-color: var(--accent);
+  box-shadow: none;
 }
 
 /* ---- Buttons: sharp, outlined ---- */
@@ -2799,6 +2830,14 @@ th {
 .button-primary:hover:not(:disabled) {
   box-shadow: var(--glow);
   background: rgba(0, 230, 118, 0.14);
+}
+/* A toggle that is currently on — the hidden-amounts button. Warm rather than
+   accent-green so "something is being withheld from this screen" reads at a
+   glance instead of looking like another primary action. */
+.button-active {
+  border-color: rgba(255, 193, 7, 0.55);
+  background: rgba(255, 193, 7, 0.12);
+  color: #ffd970;
 }
 .button-danger {
   border-color: rgba(255, 82, 82, 0.55);
@@ -3226,15 +3265,13 @@ h2 .infotip-trigger {
   color: var(--muted-2);
 }
 
-/* ---- ECharts allocation donut + legend ---- */
+/* ---- ECharts allocation donut + legend ----
+   Stacked, not side by side: the legend is now a two-column table of market
+   and cost weights, which needs the full panel width to stay readable. */
 .alloc-donut {
-  display: grid;
-  grid-template-columns: 1fr minmax(120px, 0.7fr);
+  display: flex;
+  flex-direction: column;
   gap: var(--s3);
-  align-items: center;
-}
-@media (max-width: 560px) {
-  .alloc-donut { grid-template-columns: 1fr; }
 }
 
 /* ---- Fallback data-source badge ---- */
@@ -3907,6 +3944,22 @@ a.stock-row-link {
   flex: 0 0 auto;
 }
 
+/* Two chip groups on one band header — the detail switch and the range. Kept in
+   a wrapper so `.band-header`'s space-between doesn't fling them to opposite
+   ends of the row. */
+.band-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+/* Basic hides three bands; this names them so the shorter page reads as a
+   choice rather than as missing data. */
+.overview-basic-note {
+  text-align: center;
+}
+
 /* ---- Ledger truth panel ---- */
 
 .ledger-truth {
@@ -4407,4 +4460,148 @@ kbd {
   .table-search {
     max-width: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Allocation donut: grouping chips, the ring with its basis in the hole, and
+   the market-vs-cost legend table. Lives at the end of the sheet, after both
+   earlier layers, per the note above.
+   --------------------------------------------------------------------------- */
+
+.alloc-donut-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.alloc-donut-ring {
+  position: relative;
+}
+
+/* Over the hole rather than in the ECharts option — the `graphic` component is
+   not registered on this build. `pointer-events: none` keeps slice hover and
+   click working through it. */
+.alloc-donut-centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.alloc-donut-centre-label {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.66rem;
+  color: var(--muted);
+}
+
+.alloc-donut-centre strong {
+  font-size: 0.98rem;
+  color: var(--text);
+}
+
+.alloc-legend {
+  display: flex;
+  flex-direction: column;
+}
+
+.alloc-legend-head,
+.alloc-legend-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 68px 68px;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.alloc-legend-head {
+  padding: 0 var(--s2) var(--s2);
+  border-bottom: 1px solid var(--panel-border);
+  margin-bottom: var(--s1);
+}
+
+.alloc-legend-head .alloc-legend-name {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.66rem;
+  color: var(--muted-2);
+}
+
+/* The column headers are the basis switch: whichever is active sizes the ring
+   and orders the rows, and carries the arrow. */
+.alloc-legend-sort {
+  justify-self: end;
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.alloc-legend-sort:hover,
+.alloc-legend-sort.is-active {
+  color: var(--text);
+}
+
+.alloc-legend-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.alloc-legend-row {
+  padding: 6px var(--s2);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.alloc-legend-row:hover {
+  background: var(--panel-2);
+}
+
+.alloc-legend-row:focus-visible {
+  background: var(--panel-2);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.alloc-legend-name {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The inactive basis stays legible but recessive, so the active column reads as
+   the one the ring is drawn from. */
+.alloc-legend-row .num {
+  justify-self: end;
+  font-size: 0.82rem;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.alloc-legend-row .num.is-active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.alloc-legend-rest {
+  margin: var(--s2) 0 0;
+  padding: 0 var(--s2);
+  font-size: 0.76rem;
+  color: var(--muted-2);
 }

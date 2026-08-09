@@ -1,5 +1,6 @@
 import type { DerivedHolding, Holding } from "./types";
 import { HISTORY } from "./constants";
+import { COMPACT_MONEY_MASK, MONEY_MASK, isMoneyHidden } from "./privacy";
 
 // v2: money migrated from rupee-floats to integer paisa. Bumping the key makes
 // the browser ignore stale v1 (rupee) localStorage so the paisa disk snapshot
@@ -115,7 +116,12 @@ export function computePortfolio(holdings: Holding[]): {
 }
 
 // `value` is integer paisa; render as rupees with 2 decimals.
-export function formatCurrency(value: number): string {
+/**
+ * The real figure, always. Anything that leaves the screen — the clipboard
+ * summary, an export — must use this rather than `formatCurrency`, which
+ * respects hidden mode.
+ */
+export function formatCurrencyRaw(value: number): string {
   return new Intl.NumberFormat("en-PK", {
     style: "currency",
     currency: "PKR",
@@ -126,13 +132,22 @@ export function formatCurrency(value: number): string {
     .replace("PKR", "Rs");
 }
 
+/**
+ * What the screen shows: the figure, or a mask while hidden mode is on. Every
+ * money value in the UI goes through here, which is exactly why the check
+ * lives here — see `src/privacy.ts`.
+ */
+export function formatCurrency(value: number): string {
+  return isMoneyHidden() ? MONEY_MASK : formatCurrencyRaw(value);
+}
+
 export function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
 
 // `value` is integer paisa; render compact rupees (K/L/Cr).
-export function formatCompactCurrency(value: number): string {
+export function formatCompactCurrencyRaw(value: number): string {
   const rupees = value / 100;
   const abs = Math.abs(rupees);
   const sign = rupees < 0 ? "-" : "";
@@ -140,6 +155,10 @@ export function formatCompactCurrency(value: number): string {
   if (abs >= 1e5) return `${sign}Rs ${(abs / 1e5).toFixed(2)} L`;
   if (abs >= 1e3) return `${sign}Rs ${(abs / 1e3).toFixed(1)}K`;
   return `${sign}Rs ${abs.toFixed(0)}`;
+}
+
+export function formatCompactCurrency(value: number): string {
+  return isMoneyHidden() ? COMPACT_MONEY_MASK : formatCompactCurrencyRaw(value);
 }
 
 export function formatSignedPercent(value: number, dp = 2): string {

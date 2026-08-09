@@ -405,3 +405,204 @@ describe("ledger sections", () => {
     expect(md).not.toMatch(/## Taxes by fiscal year/);
   });
 });
+
+/**
+ * The Overview dashboard's own numbers. Everything here is optional on the
+ * input, so the first thing to pin is that leaving it out changes nothing.
+ */
+describe("dashboard stats", () => {
+  const ledgerSummary = {
+    ready: true,
+    realized: 36_819,
+    unrealized: 144_000,
+    dividends: 25_500,
+    netTotal: 196_319,
+    expenses: 5_000,
+    taxPaid: 5_000,
+    feesPaid: 4_952,
+    taxesBooked: 30_197,
+    invested: 2_214_800,
+    returned: 505_000,
+    contributions: 2_000_000,
+    netReturnPct: 9.82,
+    feeDragPct: 0.5,
+    netIfSoldToday: 119_935,
+    closedTrades: 2,
+    wins: 1,
+    winRatePct: 50,
+    bestTrade: 43_316,
+    worstTrade: -6_497,
+    openPositions: 3,
+    closedPositions: 1,
+    topContributor: { ticker: "LUCK", totalNet: 206_319, contributionPct: 100 },
+    worstContributor: { ticker: "ENGRO", totalNet: -10_000, contributionPct: -5 },
+  };
+
+  const risk = {
+    ready: true,
+    maxDrawdown: 0.072,
+    volatilityAnnual: 0.184,
+    sharpe: 1.23,
+    bestDay: 0.031,
+    worstDay: -0.024,
+    twrReturn: 0.084,
+    cagr: 0.061,
+    series: { twr: [], drawdown: [], dailyReturns: [] },
+  };
+
+  const benchmark = {
+    ready: true,
+    portReturn: 0.084,
+    benchReturn: 0.052,
+    alpha: 0.032,
+    beta: 0.87,
+  };
+
+  const dashboard = {
+    ledgerSummary,
+    risk,
+    benchmark,
+    rangeLabel: "all recorded history",
+    // Long enough for the annualized figures to be printed; the short-window
+    // case below overrides it.
+    riskWindowSnapshots: 400,
+    top3Weight: 0.72,
+    cashDetail: { cgtReserve: 6_497, withheld: 500_000, deployable: 2_493_503 },
+    holdings: [holding({ ticker: "LUCK", weight: 0.4 }), holding({ ticker: "ENGRO", weight: 0.2 })],
+  };
+
+  it("reports the headline card numbers at every depth", () => {
+    for (const depth of ["headline", "compact", "comprehensive"] as const) {
+      const md = buildPortfolioSummary(baseInput(dashboard), depth);
+      expect(md, depth).toMatch(/Net P\/L \(lifetime\)/);
+      expect(md, depth).toMatch(/Deployable cash/);
+      expect(md, depth).toMatch(/True return \(TWR\)/);
+      expect(md, depth).toMatch(/vs KSE100/);
+      expect(md, depth).toMatch(/beta 0\.87/);
+    }
+  });
+
+  it("adds the reconciliation, risk profile and concentration from compact up", () => {
+    const headline = buildPortfolioSummary(baseInput(dashboard), "headline");
+    expect(headline).not.toMatch(/## Net P\/L \(lifetime, from the ledger\)/);
+    expect(headline).not.toMatch(/## Risk and benchmark/);
+    expect(headline).not.toMatch(/## Concentration/);
+
+    const compact = buildPortfolioSummary(baseInput(dashboard), "compact");
+    expect(compact).toMatch(/## Net P\/L \(lifetime, from the ledger\)/);
+    expect(compact).toMatch(/## Risk and benchmark \(all recorded history\)/);
+    expect(compact).toMatch(/## Concentration/);
+    expect(compact).toMatch(/Top 3 positions: 72\.0%/);
+    expect(compact).toMatch(/Max drawdown: 7\.2%/);
+    expect(compact).toMatch(/Sharpe: 1\.23/);
+    expect(compact).toMatch(/Win rate: 50%/);
+    expect(compact).toMatch(/Best contributor: LUCK/);
+    expect(compact).toMatch(/Worst contributor: ENGRO/);
+  });
+
+  /**
+   * The strip is an equation, so a term inside `netTotal` that is missing from
+   * the line reads as arithmetic that does not work — the same rule the
+   * Overview band follows.
+   */
+  it("prints only the terms that are actually in netTotal", () => {
+    const md = buildPortfolioSummary(baseInput(dashboard), "compact");
+    const equation = md.split("\n").find((l) => l.includes("Realized") && l.includes("="));
+    expect(equation).toBeDefined();
+    expect(equation).toMatch(/− Charges/);
+    expect(equation).toMatch(/− Tax paid/);
+    // Brokerage is already inside Realized; booked tax is not paid. Neither is
+    // a term, and printing them here would double-count.
+    expect(equation).not.toMatch(/Fees paid/);
+    expect(equation).not.toMatch(/Taxes booked/);
+
+    const clean = buildPortfolioSummary(
+      baseInput({ ...dashboard, ledgerSummary: { ...ledgerSummary, expenses: 0, taxPaid: 0 } }),
+      "compact",
+    );
+    const cleanEq = clean.split("\n").find((l) => l.includes("Realized") && l.includes("="));
+    expect(cleanEq).not.toMatch(/Charges/);
+    expect(cleanEq).not.toMatch(/Tax paid/);
+  });
+
+  it("holds the deposits-vs-growth split back for comprehensive", () => {
+    const savings = {
+      ready: true,
+      monthlyAvg: 100_000,
+      totalContributed: 2_000_000,
+      latestValue: 2_400_000,
+      marketGain: 400_000,
+      pctFromDeposits: 0.833,
+      pctFromMarket: 0.167,
+      latestValueDate: "2026-05-31",
+      liveReady: false,
+      liveValue: 0,
+      liveMarketGain: 0,
+      livePctFromDeposits: 0,
+      livePctFromMarket: 0,
+      streak: 6,
+      months: 20,
+    };
+    const compact = buildPortfolioSummary(baseInput({ ...dashboard, savings }), "compact");
+    expect(compact).not.toMatch(/## Deposits vs market growth/);
+
+    const full = buildPortfolioSummary(baseInput({ ...dashboard, savings }), "comprehensive");
+    expect(full).toMatch(/## Deposits vs market growth \(as of 31 May\)/);
+    expect(full).toMatch(/From deposits: 83\.3%/);
+    expect(full).toMatch(/From market: 16\.7%/);
+  });
+
+  /**
+   * A four-day window annualizes into a CAGR in the six figures and a Sharpe in
+   * the thousands. The Overview page withholds both on this threshold; a
+   * summary that printed them would be quoting noise as a number.
+   */
+  it("withholds CAGR and Sharpe on a window too short to annualize", () => {
+    const short = buildPortfolioSummary(
+      baseInput({ ...dashboard, riskWindowSnapshots: 4 }),
+      "compact",
+    );
+    expect(short).toMatch(/True return \(TWR\): \+8\.40% \(window too short to annualize\)/);
+    // Volatility is annualized by construction and stays; the CAGR clause goes.
+    expect(short).not.toMatch(/\+6\.10% annualized/);
+    expect(short).toMatch(/Sharpe: — \(needs \d+\+ snapshots to annualize\)/);
+    expect(short).not.toMatch(/1\.23/);
+
+    const long = buildPortfolioSummary(
+      baseInput({ ...dashboard, riskWindowSnapshots: 400 }),
+      "compact",
+    );
+    expect(long).toMatch(/\+6\.10% annualized/);
+    expect(long).toMatch(/Sharpe: 1\.23/);
+  });
+
+  /** Without recorded deposits the denominator is zero, so there is no return. */
+  it("drops the on-capital clause when nothing was contributed", () => {
+    const md = buildPortfolioSummary(
+      baseInput({ ...dashboard, ledgerSummary: { ...ledgerSummary, contributions: 0 } }),
+      "compact",
+    );
+    expect(md).not.toMatch(/of capital/);
+    // `\s` rather than a literal space: Intl currency output separates the
+    // symbol with a non-breaking space.
+    expect(md).toMatch(/- Net P\/L \(lifetime\): \+Rs\s1,963\.19/);
+  });
+
+  it("omits every dashboard section when the stats are absent or not ready", () => {
+    for (const over of [
+      {},
+      {
+        ledgerSummary: { ...ledgerSummary, ready: false },
+        risk: { ...risk, ready: false },
+        benchmark: { ...benchmark, ready: false },
+      },
+    ]) {
+      const md = buildPortfolioSummary(baseInput(over), "comprehensive");
+      expect(md).not.toMatch(/## Net P\/L \(lifetime, from the ledger\)/);
+      expect(md).not.toMatch(/## Risk and benchmark/);
+      expect(md).not.toMatch(/## Deposits vs market growth/);
+      expect(md).not.toMatch(/## Concentration/);
+      expect(md).not.toMatch(/NaN/);
+    }
+  });
+});

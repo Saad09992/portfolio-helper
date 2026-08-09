@@ -1,29 +1,48 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ECharts, EChartsCoreOption } from "echarts/core";
 import { EChart } from "./EChart";
 import { chartTokens } from "../../theme/chartTokens";
 import { getSliceColor } from "./palette";
-import { formatCurrency, formatPercent } from "../../utils";
-import { stockHref } from "../../routes";
+import { formatCompactCurrency, formatCurrency, formatPercent } from "../../utils";
+import { ChipGroup } from "../ui/ChipGroup";
+import { UI_LIMITS } from "../../constants";
+import {
+  BASIS_LABEL,
+  allocationTotal,
+  buildAllocationSlices,
+  valueFor,
+  weightFor,
+  type AllocationBasis,
+  type AllocationGroup,
+  type AllocationInput,
+} from "../../portfolio/allocation";
 
 export function AllocationDonut({
   holdings,
-  onSelectTicker,
+  hrefFor,
+  onSelect,
 }: {
-  holdings: { ticker: string; marketValue: number; weight: number }[];
-  onSelectTicker?: (ticker: string) => void;
+  holdings: AllocationInput[];
+  /** Where a slice leads — a stock page, or Holdings filtered to a sector. */
+  hrefFor?: (key: string, groupBy: AllocationGroup) => string;
+  /** Canvas clicks, which cannot be anchors. */
+  onSelect?: (key: string, groupBy: AllocationGroup) => void;
 }) {
+  const [groupBy, setGroupBy] = useState<AllocationGroup>("sector");
+  const [basis, setBasis] = useState<AllocationBasis>("market");
+
   const chartRef = useRef<ECharts | null>(null);
   // See Heatmap: `onInit` fires once, so the callback is read through a ref.
-  const cbRef = useRef(onSelectTicker);
-  cbRef.current = onSelectTicker;
+  const cbRef = useRef({ onSelect, groupBy });
+  cbRef.current = { onSelect, groupBy };
 
-  // One ordering for both the donut and the legend so a legend row's index is
-  // the slice's dataIndex.
-  const sorted = useMemo(
-    () => [...holdings].sort((a, b) => b.marketValue - a.marketValue),
-    [holdings],
+  // One ordering for the donut and the legend, so a legend row's index is the
+  // slice's `dataIndex` and its colour.
+  const slices = useMemo(
+    () => buildAllocationSlices(holdings, groupBy, basis),
+    [holdings, groupBy, basis],
   );
+  const total = useMemo(() => allocationTotal(slices, basis), [slices, basis]);
 
   const option = useMemo<EChartsCoreOption>(() => {
     const t = chartTokens();
@@ -35,13 +54,22 @@ export function AllocationDonut({
         backgroundColor: t.panel,
         borderColor: t.border,
         textStyle: { color: t.text, fontFamily: t.fontMono, fontSize: 11 },
-        formatter: (d: { name: string; value: number; percent: number }) =>
-          `${d.name}<br/>${formatCurrency(d.value)}<br/>${d.percent.toFixed(1)}%`,
+        // Both weights, always — the comparison is the point of the widget, and
+        // it should not depend on which column happens to be active.
+        formatter: (d: { dataIndex: number }) => {
+          const slice = slices[d.dataIndex];
+          if (!slice) return "";
+          return [
+            slice.label,
+            formatCurrency(valueFor(slice, basis)),
+            `market ${formatPercent(slice.marketWeight)} · cost ${formatPercent(slice.costWeight)}`,
+          ].join("<br/>");
+        },
       },
       series: [
         {
           type: "pie",
-          radius: ["56%", "82%"],
+          radius: ["58%", "82%"],
           center: ["50%", "50%"],
           avoidLabelOverlap: true,
           itemStyle: { borderColor: t.bg, borderWidth: 2 },
@@ -49,25 +77,20 @@ export function AllocationDonut({
             scale: true,
             scaleSize: 8,
             itemStyle: { shadowBlur: 12, shadowColor: "rgba(0,0,0,0.35)" },
-            label: { show: true, color: t.text, fontWeight: "bold" },
           },
-          label: {
-            color: t.muted,
-            fontFamily: t.fontMono,
-            fontSize: 10,
-            formatter: (d: { name: string; percent: number }) =>
-              d.percent >= 4 ? `${d.name} ${d.percent.toFixed(0)}%` : "",
-          },
-          labelLine: { lineStyle: { color: t.border }, length: 6, length2: 6 },
-          data: sorted.map((h, i) => ({
-            name: h.ticker,
-            value: h.marketValue,
+          // The legend below carries every name and both numbers, so the ring
+          // stays clean — labels on it would only repeat the table.
+          label: { show: false },
+          labelLine: { show: false },
+          data: slices.map((slice, i) => ({
+            name: slice.label,
+            value: valueFor(slice, basis),
             itemStyle: { color: getSliceColor(i) },
           })),
         },
       ],
     };
-  }, [sorted]);
+  }, [slices, basis]);
 
   const highlight = useCallback((dataIndex: number) => {
     chartRef.current?.dispatchAction({ type: "highlight", seriesIndex: 0, dataIndex });
@@ -79,32 +102,92 @@ export function AllocationDonut({
     chartRef.current?.dispatchAction({ type: "hideTip" });
   }, []);
 
-  if (holdings.length === 0) return <div className="chart-empty">No holdings yet</div>;
+  const groupChips = (
+    <ChipGroup
+      ariaLabel="Group allocation by"
+      value={groupBy}
+      onChange={setGroupBy}
+      options={[
+        { value: "sector", label: "Sector" },
+        { value: "ticker", label: "Ticker" },
+      ]}
+    />
+  );
+
+  if (holdings.length === 0) {
+    return (
+      <div className="alloc-donut">
+        <div className="alloc-donut-bar">{groupChips}</div>
+        <div className="chart-empty">No holdings yet</div>
+      </div>
+    );
+  }
+
+  const shown = slices.slice(0, UI_LIMITS.DONUT_LEGEND_ROWS);
+  const rest = slices.slice(UI_LIMITS.DONUT_LEGEND_ROWS);
+
   return (
     <div className="alloc-donut">
-      <EChart
-        option={option}
-        height={300}
-        className={onSelectTicker ? "chart-clickable" : undefined}
-        onInit={(chart) => {
-          chartRef.current = chart;
-          chart.on("click", (params: { name?: string }) => {
-            if (params.name) cbRef.current?.(params.name);
-          });
-        }}
-      />
+      <div className="alloc-donut-bar">{groupChips}</div>
+
+      <div className="alloc-donut-ring">
+        <EChart
+          option={option}
+          height={UI_LIMITS.DONUT_HEIGHT}
+          className={hrefFor || onSelect ? "chart-clickable" : undefined}
+          onInit={(chart) => {
+            chartRef.current = chart;
+            chart.on("click", (params: { name?: string }) => {
+              const { onSelect: cb, groupBy: mode } = cbRef.current;
+              if (params.name) cb?.(params.name, mode);
+            });
+          }}
+        />
+        {/* Which basis the ring is drawn from, and how much of it there is.
+            Sits over the hole rather than inside the option: the `graphic`
+            component is not registered on this app's ECharts build. */}
+        <div className="alloc-donut-centre" aria-hidden="true">
+          <span className="alloc-donut-centre-label">{BASIS_LABEL[basis]}</span>
+          <strong className="num">{formatCompactCurrency(total)}</strong>
+        </div>
+      </div>
+
       {/* The canvas can't be focused, so these legend rows are the keyboard path
           into each slice — real anchors when a target exists, so Enter works and
           the destination shows in the status bar. */}
-      <div className="pie-legend">
-        {sorted.slice(0, 8).map((h, i) => {
+      <div className="alloc-legend">
+        <div className="alloc-legend-head">
+          <span className="alloc-legend-name">
+            {groupBy === "sector" ? "Sector" : "Ticker"}
+          </span>
+          {(["market", "cost"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={`alloc-legend-sort ${basis === key ? "is-active" : ""}`.trim()}
+              aria-pressed={basis === key}
+              title={`Size and sort the ring by ${BASIS_LABEL[key].toLowerCase()}`}
+              onClick={() => setBasis(key)}
+            >
+              {key === "market" ? "Market" : "Cost"}
+              <span aria-hidden="true">{basis === key ? " ↓" : ""}</span>
+            </button>
+          ))}
+        </div>
+
+        {shown.map((slice, i) => {
           const inner = (
             <>
-              <span className="legend-swatch" style={{ background: getSliceColor(i) }} />
-              <div>
-                <strong>{h.ticker}</strong>
-                <span className="num">{formatPercent(h.weight)}</span>
-              </div>
+              <span className="alloc-legend-name">
+                <span className="legend-swatch" style={{ background: getSliceColor(i) }} />
+                {slice.label}
+              </span>
+              <span className={`num ${basis === "market" ? "is-active" : ""}`.trim()}>
+                {formatPercent(slice.marketWeight)}
+              </span>
+              <span className={`num ${basis === "cost" ? "is-active" : ""}`.trim()}>
+                {formatPercent(slice.costWeight)}
+              </span>
             </>
           );
           const hover = {
@@ -113,21 +196,30 @@ export function AllocationDonut({
             onFocus: () => highlight(i),
             onBlur: () => downplay(i),
           };
-          return onSelectTicker ? (
+          return hrefFor ? (
             <a
-              key={h.ticker}
-              className="legend-row legend-row--link"
-              href={stockHref(h.ticker)}
+              key={slice.key}
+              className="alloc-legend-row alloc-legend-row--link"
+              href={hrefFor(slice.key, groupBy)}
               {...hover}
             >
               {inner}
             </a>
           ) : (
-            <div key={h.ticker} className="legend-row" tabIndex={0} {...hover}>
+            <div key={slice.key} className="alloc-legend-row" tabIndex={0} {...hover}>
               {inner}
             </div>
           );
         })}
+
+        {rest.length > 0 ? (
+          <p className="alloc-legend-rest">
+            + {rest.length} more, {formatPercent(
+              rest.reduce((sum, s) => sum + weightFor(s, basis), 0),
+            )}{" "}
+            of {BASIS_LABEL[basis].toLowerCase()}
+          </p>
+        ) : null}
       </div>
     </div>
   );

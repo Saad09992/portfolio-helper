@@ -31,6 +31,10 @@ export const UI_LIMITS = {
   TOP_MOVERS: 6,
   TREEMAP_TOP_N: 12,
   WATERFALL_TOP_N: 10,
+  /** Ring height for the allocation donut; the legend sits under it. */
+  DONUT_HEIGHT: 220,
+  /** Legend rows before the tail is summarised as "+ N more". */
+  DONUT_LEGEND_ROWS: 10,
   /**
    * Delay before a search box mirrors itself into the URL. Long enough that
    * typing a word is one history write, not one per keystroke — Safari throttles

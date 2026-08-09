@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
   AreaSeries,
@@ -8,6 +8,7 @@ import {
 } from "lightweight-charts";
 import { formatCurrency } from "../../utils";
 import { chartTokens } from "../../theme/chartTokens";
+import { useMoneyHidden } from "../../privacy";
 
 export type InvestmentChartRow = {
   id: string;
@@ -25,8 +26,12 @@ function dayKey(iso: string): string {
 }
 
 export function InvestmentChart({ rows }: { rows: InvestmentChartRow[] }) {
+  const moneyHidden = useMoneyHidden();
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  // State, not a ref — see the same note in PortfolioHistoryChart: the series
+  // effect must re-run when the chart is rebuilt, and a ref change is invisible
+  // to a dependency array.
+  const [chart, setChart] = useState<IChartApi | null>(null);
 
   const series = useMemo(() => {
     const byDay = new Map<string, InvestmentChartRow>();
@@ -44,8 +49,11 @@ export function InvestmentChart({ rows }: { rows: InvestmentChartRow[] }) {
   useEffect(() => {
     if (!containerRef.current) return;
     const t = chartTokens();
-    const chart = createChart(containerRef.current, {
+    const instance = createChart(containerRef.current, {
       autoSize: true,
+      // Canvas-drawn axis labels the formatters cannot reach — see the same
+      // note in PortfolioHistoryChart.
+      localization: moneyHidden ? { priceFormatter: () => "••••" } : undefined,
       layout: {
         background: { color: "transparent" },
         textColor: t.muted,
@@ -60,15 +68,14 @@ export function InvestmentChart({ rows }: { rows: InvestmentChartRow[] }) {
         horzLine: { color: t.muted, labelBackgroundColor: t.panel },
       },
     });
-    chartRef.current = chart;
+    setChart(instance);
     return () => {
-      chart.remove();
-      chartRef.current = null;
+      instance.remove();
+      setChart(null);
     };
-  }, []);
+  }, [moneyHidden]);
 
   useEffect(() => {
-    const chart = chartRef.current;
     if (!chart) return;
     const t = chartTokens();
     const created: ReturnType<typeof chart.addSeries>[] = [];
@@ -101,7 +108,7 @@ export function InvestmentChart({ rows }: { rows: InvestmentChartRow[] }) {
         }
       }
     };
-  }, [series]);
+  }, [chart, series]);
 
   if (rows.length === 0) {
     return <div className="chart-empty">No entries yet — add an installment to chart it</div>;

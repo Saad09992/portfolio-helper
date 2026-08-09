@@ -2,6 +2,9 @@ import type { DerivedHolding, InvestmentEntry, SectorBucket } from "../types";
 import type { StockLedgerRow } from "../ledger/perStock";
 import type { TaxYear } from "../ledger/tax";
 import type { FeeConfig } from "../ledger/feeConfig";
+import type { LedgerSummary } from "../ledger/summary";
+import type { BenchmarkStats, RiskMetrics, SavingsStats } from "../analytics";
+import { ANALYTICS } from "../constants";
 import type {
   BonusTaxCharge,
   DividendReceipt,
@@ -11,7 +14,10 @@ import type {
 import { computeTradeCosts, tradeValue } from "../ledger/fees";
 import {
   type PortfolioSnapshot,
-  formatCurrency,
+  // The RAW formatters, deliberately: hidden mode is about what a bystander can
+  // read off the screen, not about what you paste into your own notes. A
+  // summary that silently came out masked would look complete and be useless.
+  formatCurrencyRaw as formatCurrency,
   formatDateLong,
   formatDateShort,
   formatPercent,
@@ -80,6 +86,34 @@ export type PortfolioSummaryInput = {
   bonusTaxes?: BonusTaxCharge[];
   /** Rate set, to itemize per-trade fees in the ledger. */
   feeConfig?: FeeConfig;
+
+  // ── The Overview dashboard's own numbers ────────────────────────────────
+  //
+  // Everything below mirrors a band on the Overview page, so a pasted summary
+  // says what the dashboard says. All optional: absent (or `ready: false`)
+  // simply drops the section rather than printing a block of zeroes.
+
+  /** Lifetime ledger roll-up — the "Ledger truth" band. */
+  ledgerSummary?: LedgerSummary;
+  /** Windowed risk profile — the "Risk" band. */
+  risk?: RiskMetrics;
+  /** KSE100 comparison — the "vs KSE100" card and the Beta tile. */
+  benchmark?: BenchmarkStats;
+  /** Deposits vs market growth — the "Contribution" band. */
+  savings?: SavingsStats;
+  /** Which window `risk` and `benchmark` cover, e.g. "all recorded history". */
+  rangeLabel?: string;
+  /**
+   * How many daily snapshots `risk` was computed from. Gates the annualized
+   * figures: a handful of days annualizes into a CAGR in the thousands and a
+   * Sharpe to match, which is noise wearing a decimal point. The Overview page
+   * withholds them on the same threshold.
+   */
+  riskWindowSnapshots?: number;
+  /** Combined weight of the three largest positions, as a fraction. */
+  top3Weight?: number;
+  /** paisa — the parts of the cash balance that are not free to trade with. */
+  cashDetail?: { cgtReserve: number; withheld: number; deployable: number };
 };
 
 function mdTable(headers: string[], rows: string[][]): string {
@@ -117,6 +151,176 @@ function renderHeader(input: PortfolioSummaryInput): string {
   return lines.join("\n");
 }
 
+/**
+ * Whether the window is long enough for an annualized figure to mean anything.
+ * Absent snapshot count means "assume not" — the quiet omission is the safe
+ * default; a wrong CAGR is not.
+ */
+function canAnnualize(input: PortfolioSummaryInput): boolean {
+  return (input.riskWindowSnapshots ?? 0) >= ANALYTICS.MIN_ANNUALIZE_SNAPSHOTS;
+}
+
+/**
+ * The "X% on Rs Y of capital" clause, or nothing. With no recorded deposits the
+ * denominator is zero and the clause reads "0.00% on Rs 0.00 of capital", which
+ * states a return that was never computed.
+ */
+function onCapital(ls: LedgerSummary): string {
+  if (ls.contributions <= 0) return "";
+  return ` (${formatSignedPercent(ls.netReturnPct, 2)} on ${formatCurrency(ls.contributions)} of capital)`;
+}
+
+/** TWR over the window, with the CAGR clause only when it is honest. */
+function trueReturnLine(input: PortfolioSummaryInput, risk: RiskMetrics): string {
+  const total = formatSignedPercent(risk.twrReturn * 100, 2);
+  return canAnnualize(input)
+    ? `${total} · ${formatSignedPercent(risk.cagr * 100, 2)} annualized`
+    : `${total} (window too short to annualize)`;
+}
+
+/**
+ * The reconciliation the Overview page leads with, as a single line, plus the
+ * roll-up tiles under it.
+ *
+ * The equation is printed with every term that is actually in `netTotal` and no
+ * term that isn't — brokerage and booked tax are deliberately absent, because
+ * brokerage is already inside `realized` and accrued CGT has not been paid.
+ * They get their own lines below, where they cannot be read as subtractions.
+ */
+function renderLedgerTruth(input: PortfolioSummaryInput): string {
+  const ls = input.ledgerSummary;
+  if (!ls || !ls.ready) return "";
+
+  let equation =
+    `Realized ${signedCurrency(ls.realized)}` +
+    ` + Unrealized ${signedCurrency(ls.unrealized)}` +
+    ` + Dividends ${formatCurrency(ls.dividends)}`;
+  if (ls.expenses > 0) equation += ` − Charges ${formatCurrency(ls.expenses)}`;
+  if (ls.taxPaid > 0) equation += ` − Tax paid ${formatCurrency(ls.taxPaid)}`;
+
+  const lines = [
+    "## Net P/L (lifetime, from the ledger)",
+    `${equation} = **${signedCurrency(ls.netTotal)}**`,
+    "",
+    `- Net P/L: ${signedCurrency(ls.netTotal)}${onCapital(ls)}`,
+    `- Realized: ${signedCurrency(ls.realized)} · ${ls.closedTrades} closed sale${ls.closedTrades === 1 ? "" : "s"} across ${ls.closedPositions} exited position${ls.closedPositions === 1 ? "" : "s"}`,
+    `- Unrealized: ${signedCurrency(ls.unrealized)} across ${ls.openPositions} open position${ls.openPositions === 1 ? "" : "s"}`,
+    `- Net if sold today: ${signedCurrency(ls.netIfSoldToday)} (after ${formatCurrency(ls.unrealized - ls.netIfSoldToday)} of exit costs)`,
+    `- Dividends (net of withholding): ${formatCurrency(ls.dividends)}`,
+    `- Fees paid: ${formatCurrency(ls.feesPaid)} · ${ls.feeDragPct.toFixed(2)}% drag on capital put in`,
+    `- Taxes booked: ${formatCurrency(ls.taxesBooked)} (booked, not all paid)`,
+  ];
+
+  if (input.cashDetail) {
+    const { cgtReserve, withheld, deployable } = input.cashDetail;
+    lines.push(
+      `- Deployable cash: ${formatCurrency(deployable)} — ${formatCurrency(input.cash.available)} balance less ${formatCurrency(withheld)} withheld and ${formatCurrency(cgtReserve)} CGT reserve`,
+    );
+  }
+
+  lines.push(
+    ls.closedTrades > 0
+      ? `- Win rate: ${ls.winRatePct.toFixed(0)}% (${ls.wins}/${ls.closedTrades}) · best ${signedCurrency(ls.bestTrade)}, worst ${signedCurrency(ls.worstTrade)}`
+      : "- Win rate: — (no completed sales yet)",
+  );
+
+  if (ls.topContributor) {
+    lines.push(
+      `- Best contributor: ${ls.topContributor.ticker} ${signedCurrency(ls.topContributor.totalNet)}`,
+    );
+  }
+  if (ls.worstContributor) {
+    lines.push(
+      `- Worst contributor: ${ls.worstContributor.ticker} ${signedCurrency(ls.worstContributor.totalNet)}`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
+/** The Risk band and the KSE100 comparison, both windowed by the active range. */
+function renderRiskProfile(input: PortfolioSummaryInput): string {
+  const risk = input.risk;
+  const bench = input.benchmark;
+  if (!risk?.ready && !bench?.ready) return "";
+
+  const window = input.rangeLabel ? ` (${input.rangeLabel})` : "";
+  const lines = [`## Risk and benchmark${window}`];
+
+  if (risk?.ready) {
+    lines.push(
+      `- True return (TWR): ${trueReturnLine(input, risk)}`,
+      `- Max drawdown: ${formatPercent(risk.maxDrawdown)} peak-to-trough`,
+      `- Volatility: ${formatPercent(risk.volatilityAnnual)} annualized`,
+      // Sharpe is (CAGR − risk-free) / volatility, so it inherits the CAGR gate.
+      canAnnualize(input)
+        ? `- Sharpe: ${risk.sharpe.toFixed(2)}`
+        : `- Sharpe: — (needs ${ANALYTICS.MIN_ANNUALIZE_SNAPSHOTS}+ snapshots to annualize)`,
+      `- Best day: ${formatSignedPercent(risk.bestDay * 100, 2)} · worst day: ${formatSignedPercent(risk.worstDay * 100, 2)}`,
+    );
+  }
+
+  if (bench?.ready) {
+    lines.push(
+      `- vs KSE100: alpha ${formatSignedPercent(bench.alpha * 100, 2)} — you ${formatSignedPercent(bench.portReturn * 100, 2)}, index ${formatSignedPercent(bench.benchReturn * 100, 2)}`,
+      `- Beta vs KSE100: ${bench.beta.toFixed(2)}`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
+/** How lopsided the book is — the line under the Allocation band's treemap. */
+function renderConcentration(input: PortfolioSummaryInput): string {
+  if (input.top3Weight == null || input.holdings.length === 0) return "";
+  const largest = [...input.holdings].sort((a, b) => b.weight - a.weight)[0];
+  // `weight` on a holding is its share of the whole account, cash included.
+  // `top3Weight` is a share of invested value, so re-base the largest against
+  // the same denominator — otherwise the two lines are measured differently.
+  const invested = input.holdings.reduce((sum, h) => sum + h.weight, 0);
+  const largestWeight = invested > 0 ? largest.weight / invested : 0;
+  return [
+    "## Concentration",
+    `- Top 3 positions: ${formatPercent(input.top3Weight)} of invested value`,
+    `- Largest: ${largest.ticker} at ${formatPercent(largestWeight)}`,
+    `- Positions held: ${input.holdings.length}`,
+  ].join("\n");
+}
+
+/**
+ * Deposits vs market growth — how much of the pot you put there yourself.
+ *
+ * Prefers the live-price split when there is one, exactly as `GrowthVsDeposits`
+ * does, so the summary and the chart never disagree about which value they are
+ * splitting. The shares are fractions, not whole percents.
+ */
+function renderSavingsSplit(input: PortfolioSummaryInput): string {
+  const s = input.savings;
+  if (!s?.ready) return "";
+
+  const useLive = s.liveReady;
+  const value = useLive ? s.liveValue : s.latestValue;
+  if (value <= 0) return "";
+
+  const marketGain = useLive ? s.liveMarketGain : s.marketGain;
+  const fromDeposits = useLive ? s.livePctFromDeposits : s.pctFromDeposits;
+  const fromMarket = useLive ? s.livePctFromMarket : s.pctFromMarket;
+  const asOf = useLive
+    ? "at live prices"
+    : s.latestValueDate
+      ? `as of ${formatDateShort(s.latestValueDate)}`
+      : "";
+
+  return [
+    `## Deposits vs market growth${asOf ? ` (${asOf})` : ""}`,
+    `- Value split: ${formatCurrency(value)}`,
+    `- From deposits: ${formatPercent(fromDeposits)} · ${formatCurrency(s.totalContributed)} contributed`,
+    `- From market: ${formatPercent(fromMarket)} · ${signedCurrency(marketGain)}`,
+    `- Average monthly contribution: ${formatCurrency(s.monthlyAvg)} over ${s.months} month${s.months === 1 ? "" : "s"}`,
+    `- Contribution streak: ${s.streak}`,
+  ].join("\n");
+}
+
 function renderHeadline(input: PortfolioSummaryInput): string {
   const { totals, cash } = input;
   const costRef = totals.totalCost > 0 ? totals.totalCost : totals.equityMarketValue;
@@ -126,7 +330,7 @@ function renderHeadline(input: PortfolioSummaryInput): string {
       ? (totals.dayPnL / (totals.equityMarketValue - totals.dayPnL)) * 100
       : 0;
 
-  return [
+  const lines = [
     "## Headline",
     `- Total value (incl. cash): ${formatCurrency(totals.totalValue)}`,
     `- Equity market value: ${formatCurrency(totals.equityMarketValue)}`,
@@ -134,7 +338,20 @@ function renderHeadline(input: PortfolioSummaryInput): string {
     `- Unrealized P/L: ${signedCurrency(totals.unrealizedPnL)} (${formatSignedPercent(pnlPct, 2)})`,
     `- Day P/L: ${signedCurrency(totals.dayPnL)} (${formatSignedPercent(dayPct, 2)})`,
     `- Cash: ${formatCurrency(cash.available)} (${formatPercent(cash.weight)} of portfolio)`,
-  ].join("\n");
+  ];
+
+  // The dashboard leads with lifetime net P/L rather than unrealized once the
+  // ledger exists, so the summary should too — otherwise the headline number
+  // here and the headline number on screen are different numbers.
+  const ls = input.ledgerSummary;
+  if (ls?.ready) {
+    lines.push(`- Net P/L (lifetime): ${signedCurrency(ls.netTotal)}${onCapital(ls)}`);
+  }
+  if (input.cashDetail) {
+    lines.push(`- Deployable cash: ${formatCurrency(input.cashDetail.deployable)}`);
+  }
+
+  return lines.join("\n");
 }
 
 function renderTopHoldings(input: PortfolioSummaryInput, limit = 5): string {
@@ -233,6 +450,19 @@ function renderPerformance(input: PortfolioSummaryInput): string {
 
   const lines = ["## Performance"];
   lines.push(`- Simple cumulative return: ${formatSignedPercent(simpleReturnPct, 2)}`);
+
+  // Flow-adjusted return and the index comparison — the two headline cards the
+  // simple return above cannot stand in for, since it ignores when money went in.
+  const window = input.rangeLabel ? ` over ${input.rangeLabel}` : "";
+  if (input.risk?.ready) {
+    lines.push(`- True return (TWR)${window}: ${trueReturnLine(input, input.risk)}`);
+  }
+  if (input.benchmark?.ready) {
+    lines.push(
+      `- vs KSE100${window}: alpha ${formatSignedPercent(input.benchmark.alpha * 100, 2)} (you ${formatSignedPercent(input.benchmark.portReturn * 100, 2)}, index ${formatSignedPercent(input.benchmark.benchReturn * 100, 2)}) · beta ${input.benchmark.beta.toFixed(2)}`,
+    );
+  }
+
   if (inv.count >= 1) {
     lines.push(
       `- Invest-tracker P/L: ${signedCurrency(inv.pnlValue)} (${formatSignedPercent(inv.pnlPct, 2)})`,
@@ -567,6 +797,10 @@ export function buildPortfolioSummary(
 ): string {
   const sections: string[] = [renderHeader(input), renderHeadline(input)];
 
+  // `renderHeadline` and `renderPerformance` already carry the dashboard's
+  // headline card numbers (net P/L, deployable cash, TWR, alpha, beta), so
+  // every depth reports them — the depths differ in how much is shown *behind*
+  // those numbers, mirroring the Overview page's bands.
   if (depth === "headline") {
     sections.push(renderTopHoldings(input, 5));
     sections.push(renderPerformance(input));
@@ -580,6 +814,15 @@ export function buildPortfolioSummary(
   if (targets) sections.push(targets);
   sections.push(renderPerformance(input));
 
+  // From compact up, the Overview bands that explain the headline: what net P/L
+  // is made of, how rough the ride was, and how lopsided the book is.
+  const ledgerTruth = renderLedgerTruth(input);
+  if (ledgerTruth) sections.push(ledgerTruth);
+  const riskProfile = renderRiskProfile(input);
+  if (riskProfile) sections.push(riskProfile);
+  const concentration = renderConcentration(input);
+  if (concentration) sections.push(concentration);
+
   // Per-stock scoreboard appears from compact up — it's the single most useful
   // ledger view and stays terse (one row per name).
   const stockLedger = renderStockLedger(input);
@@ -589,6 +832,9 @@ export function buildPortfolioSummary(
     sections.push(renderDividends(input, 4));
     return sections.filter(Boolean).join("\n\n") + "\n";
   }
+
+  const savingsSplit = renderSavingsSplit(input);
+  if (savingsSplit) sections.push(savingsSplit);
 
   const stockDetail = renderStockDetail(input);
   if (stockDetail) sections.push(stockDetail);

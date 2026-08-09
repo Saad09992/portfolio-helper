@@ -15,6 +15,7 @@ import {
   type PortfolioSnapshot,
 } from "../../utils";
 import { chartTokens } from "../../theme/chartTokens";
+import { useMoneyHidden } from "../../privacy";
 import { ChipGroup } from "../ui/ChipGroup";
 
 type ViewMode = "value" | "twr";
@@ -35,8 +36,13 @@ export function PortfolioHistoryChart({
   contributions?: ContributionPoint[];
 }) {
   const [viewMode, setViewMode] = useState<ViewMode>("value");
+  const moneyHidden = useMoneyHidden();
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  // State, not a ref: the series effect below has to re-run when the chart is
+  // rebuilt, and a ref change is invisible to the dependency array. Holding it
+  // in a ref is what left the chart blank after toggling hidden mode — the
+  // instance was replaced and nothing redrew the series onto the new one.
+  const [chart, setChart] = useState<IChartApi | null>(null);
 
   // One row per calendar day (latest wins), ascending.
   const rows = useMemo(() => {
@@ -90,8 +96,12 @@ export function PortfolioHistoryChart({
   useEffect(() => {
     if (!containerRef.current) return;
     const t = chartTokens();
-    const chart = createChart(containerRef.current, {
+    const created = createChart(containerRef.current, {
       autoSize: true,
+      // The price scale draws its own labels straight to canvas, so the
+      // formatters cannot reach them — mask here or the y-axis quietly prints
+      // the portfolio value that everything else is hiding.
+      localization: moneyHidden ? { priceFormatter: () => "••••" } : undefined,
       layout: {
         background: { color: "transparent" },
         textColor: t.muted,
@@ -109,16 +119,15 @@ export function PortfolioHistoryChart({
         horzLine: { color: t.muted, labelBackgroundColor: t.panel },
       },
     });
-    chartRef.current = chart;
+    setChart(created);
     return () => {
-      chart.remove();
-      chartRef.current = null;
+      created.remove();
+      setChart(null);
     };
-  }, []);
+  }, [moneyHidden]);
 
-  // (Re)draw series whenever data or mode changes.
+  // (Re)draw series whenever the chart instance, the data or the mode changes.
   useEffect(() => {
-    const chart = chartRef.current;
     if (!chart) return;
     const t = chartTokens();
     // LWC has no "removeAllSeries" — track what we add and remove on cleanup.
@@ -181,7 +190,7 @@ export function PortfolioHistoryChart({
         }
       }
     };
-  }, [series, viewMode]);
+  }, [chart, series, viewMode]);
 
   if (rows.length === 0) {
     return <div className="chart-empty">No snapshots yet — refresh prices after 23:59 PKT</div>;

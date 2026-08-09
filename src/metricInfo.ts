@@ -166,7 +166,7 @@ export const METRIC_INFO = {
       "The number to size a buy against. Using the raw cash balance instead means funding trades with money earmarked for the next NCCPL debit.",
   },
   top3Concentration: {
-    what: "Combined weight of your three largest positions.",
+    what: "Combined weight of your three largest positions, as a share of invested value — cash is excluded.",
     reading:
       "Under about 40% is diversified, 40-60% is concentrated, above 60% means three names decide your outcome. Fine if deliberate; check it is.",
   },

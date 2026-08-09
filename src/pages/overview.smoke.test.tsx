@@ -36,7 +36,9 @@ const empty: OverviewPageProps = {
   costBasis: 0,
   nonCashCount: 0,
   portfolio: { totalValue: 0, totalGainLoss: 0, holdings: [] },
+  nonCashHoldings: [],
   topHolding: undefined,
+  topHoldingWeight: 0,
   cashDraft: { available: 0 },
   cashWeight: 0,
   investmentSummary: { totalInvested: 0, latestValue: 0, pnlValue: 0, pnlPct: 0, count: 0 },
@@ -68,6 +70,10 @@ const empty: OverviewPageProps = {
   ledgerCash: 0,
   dayPnL: 0,
   top3Weight: 0,
+  // The fixtures render Advanced so the band assertions below cover the whole
+  // page; the Basic cases opt in explicitly.
+  viewMode: "advanced",
+  onViewModeChange: () => {},
 };
 
 const full: OverviewPageProps = {
@@ -76,6 +82,7 @@ const full: OverviewPageProps = {
   costBasis: 5_600_000,
   nonCashCount: portfolio.holdings.length,
   portfolio,
+  nonCashHoldings: portfolio.holdings,
   topHolding: portfolio.holdings[0],
   cashDraft: { available: state.cash },
   cashWeight: 0.1,
@@ -206,5 +213,55 @@ describe("OverviewPage", () => {
     const html = renderToString(<OverviewPage {...full} />);
     expect(html).toContain("snapshots to annualize");
     expect(html).not.toContain("2114");
+  });
+});
+
+describe("OverviewPage · Basic mode", () => {
+  const basic: OverviewPageProps = { ...full, viewMode: "basic" };
+
+  it("drops the three diagnostic bands", () => {
+    const html = renderToString(<OverviewPage {...basic} />);
+    for (const gone of [
+      "Ledger truth",
+      "recon-row",
+      "Deployable cash",
+      "Contribution",
+      "P/L contribution",
+      "Max drawdown",
+      "Sharpe",
+    ]) {
+      expect(html).not.toContain(gone);
+    }
+  });
+
+  it("keeps the four everyday bands, renumbered without gaps", () => {
+    const html = renderToString(<OverviewPage {...basic} />);
+    for (const title of ["Position", "History", "Today", "Allocation"]) {
+      expect(html).toContain(title);
+    }
+    // Numbered 01-04, not 01, 03, 04, 05.
+    for (const index of ["01", "02", "03", "04"]) {
+      expect(html).toContain(`>${index}</span>`);
+    }
+    for (const index of ["05", "06", "07"]) {
+      expect(html).not.toContain(`>${index}</span>`);
+    }
+    expect(html).not.toContain("NaN");
+    expect(html).not.toContain("Infinity");
+  });
+
+  it("names what Advanced adds instead of just ending short", () => {
+    const html = renderToString(<OverviewPage {...basic} />);
+    expect(html).toContain("are in Advanced");
+    expect(renderToString(<OverviewPage {...full} />)).not.toContain("are in Advanced");
+  });
+
+  it("renders the switch in both modes", () => {
+    for (const props of [basic, full]) {
+      const html = renderToString(<OverviewPage {...props} />);
+      expect(html).toContain('aria-label="Detail level"');
+      expect(html).toContain(">Basic</button>");
+      expect(html).toContain(">Advanced</button>");
+    }
   });
 });

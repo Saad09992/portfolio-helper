@@ -18,6 +18,7 @@ import {
   formatSignedPercent,
 } from "../utils";
 import { METRIC_INFO, type MetricInfo } from "../metricInfo";
+import { bandNumbers, type ViewMode } from "../overviewBands";
 import { goTo, holdingsQueryHref, pageHref, stockHref } from "../routes";
 import { StatCard } from "../components/ui/StatCard";
 import { InfoTip } from "../components/ui/InfoTip";
@@ -41,7 +42,19 @@ export type OverviewPageProps = {
   costBasis: number;
   nonCashCount: number;
   portfolio: { totalValue: number; totalGainLoss: number; holdings: DerivedHolding[] };
+  /**
+   * Positions only — the cash pseudo-holding removed. The allocation donut asks
+   * how the invested money is spread, and a cash slice answers a different
+   * question; the cash weight is reported on its own in the growth footnotes.
+   */
+  nonCashHoldings: DerivedHolding[];
   topHolding?: DerivedHolding;
+  /**
+   * The largest position's share of invested value. Not `topHolding.weight`,
+   * which is measured against the whole account including cash — this sits on
+   * the same line as `top3Weight` and must share its denominator.
+   */
+  topHoldingWeight: number;
   cashDraft: CashBuckets;
   cashWeight: number;
   investmentSummary: InvestmentSummary;
@@ -78,6 +91,9 @@ export type OverviewPageProps = {
   dayPnL: number;
   /** Combined weight of the three largest positions. */
   top3Weight: number;
+  /** How much of the page to show — see `src/overviewBands.ts`. */
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
 };
 
 function pctOrDash(ready: boolean, value: string): string {
@@ -130,7 +146,9 @@ export function OverviewPage({
   costBasis,
   nonCashCount,
   portfolio,
+  nonCashHoldings,
   topHolding,
+  topHoldingWeight,
   cashDraft,
   cashWeight,
   investmentSummary,
@@ -162,7 +180,13 @@ export function OverviewPage({
   ledgerCash,
   dayPnL,
   top3Weight,
+  viewMode,
+  onViewModeChange,
 }: OverviewPageProps) {
+  const advanced = viewMode === "advanced";
+  // Counted over the bands actually rendered, so Basic reads 01-04 rather than
+  // 01, 03, 04, 05.
+  const band = bandNumbers(viewMode);
   const rm = riskMetrics;
   const bm = benchmarkStats;
   const ls = ledgerSummary;
@@ -189,6 +213,26 @@ export function OverviewPage({
     />
   );
 
+  const viewChips = (
+    <ChipGroup
+      ariaLabel="Detail level"
+      value={viewMode}
+      onChange={onViewModeChange}
+      options={[
+        {
+          value: "basic",
+          label: "Basic",
+          title: "Headline numbers, history, today and allocation",
+        },
+        {
+          value: "advanced",
+          label: "Advanced",
+          title: "Adds ledger reconciliation, contribution and risk",
+        },
+      ]}
+    />
+  );
+
   /** Net P&L falls back to unrealized-only until the ledger exists. */
   const netPnl = ls.ready ? ls.netTotal : portfolio.totalGainLoss;
   const netPnlDetail = ls.ready
@@ -205,13 +249,21 @@ export function OverviewPage({
   const allocHref = (key: string) =>
     treemapMode === "ticker" ? stockHref(key) : holdingsQueryHref(key);
 
+  // The donut owns its own Sector/Ticker state, so it reports which mode a
+  // click came from rather than reading the treemap's.
+  const allocationHref = (key: string, mode: "sector" | "ticker") =>
+    mode === "ticker" ? stockHref(key) : holdingsQueryHref(key);
+
   return (
     <>
       {/* ---- A · Position: where do I stand? ---- */}
       <section className="overview-band">
         <div className="band-header">
-          <BandLabel index="01" title="Position" question="Where do I stand?" />
-          {rangeChips}
+          <BandLabel index={band.position} title="Position" question="Where do I stand?" />
+          <div className="band-controls">
+            {viewChips}
+            {rangeChips}
+          </div>
         </div>
         <div className="stats-grid kpi-four">
           <StatCard
@@ -262,11 +314,12 @@ export function OverviewPage({
         </div>
       </section>
 
-      {/* ---- B · Ledger truth: what is that made of? ---- */}
+      {/* ---- B · Ledger truth: what is that made of? · Advanced ---- */}
+      {advanced ? (
       <section className="overview-band">
         <div className="band-header">
           <BandLabel
-            index="02"
+            index={band.ledger}
             title="Ledger truth"
             question="What is that number made of?"
           />
@@ -452,11 +505,12 @@ export function OverviewPage({
           )}
         </article>
       </section>
+      ) : null}
 
       {/* ---- C · History: how did it get here? ---- */}
       <section className="overview-band">
         <div className="band-header">
-          <BandLabel index="03" title="History" question="How did it get here?" />
+          <BandLabel index={band.history} title="History" question="How did it get here?" />
           {rangeChips}
         </div>
         <article className="panel">
@@ -480,7 +534,7 @@ export function OverviewPage({
 
       {/* ---- D · Today: what is moving right now? ---- */}
       <section className="overview-band">
-        <BandLabel index="04" title="Today" question="What is moving right now?" />
+        <BandLabel index={band.today} title="Today" question="What is moving right now?" />
         <div className="dashboard-grid dual">
           <article className="panel">
             <div className="panel-header">
@@ -528,7 +582,7 @@ export function OverviewPage({
 
       {/* ---- E · Allocation: how is it distributed? ---- */}
       <section className="overview-band">
-        <BandLabel index="05" title="Allocation" question="How is it distributed?" />
+        <BandLabel index={band.allocation} title="Allocation" question="How is it distributed?" />
         <div className="dashboard-grid dual">
           <article className="panel chart-panel">
             <div className="panel-header">
@@ -544,8 +598,9 @@ export function OverviewPage({
             </div>
             {fetching ? <div className="chart-skeleton" aria-hidden="true" /> : null}
             <AllocationDonut
-              holdings={portfolio.holdings}
-              onSelectTicker={(ticker) => goTo(stockHref(ticker))}
+              holdings={nonCashHoldings}
+              hrefFor={allocationHref}
+              onSelect={(key, mode) => goTo(allocationHref(key, mode))}
             />
           </article>
 
@@ -579,7 +634,7 @@ export function OverviewPage({
               </div>
             </div>
             <p className="panel-meta panel-meta--inline">
-              Top 3 = {formatPercent(top3Weight)} of the portfolio
+              Top 3 = {formatPercent(top3Weight)} of invested value
               <InfoTip
                 title="Top-3 concentration"
                 what={METRIC_INFO.top3Concentration.what}
@@ -591,7 +646,7 @@ export function OverviewPage({
                   <a className="ticker-link" href={stockHref(topHolding.ticker)}>
                     {topHolding.ticker}
                   </a>
-                  {` at ${formatPercent(topHolding.weight)}`}
+                  {` at ${formatPercent(topHoldingWeight)}`}
                 </>
               ) : null}
             </p>
@@ -616,9 +671,10 @@ export function OverviewPage({
         </div>
       </section>
 
-      {/* ---- F · Contribution: who moved the needle? ---- */}
+      {/* ---- F · Contribution: who moved the needle? · Advanced ---- */}
+      {advanced ? (
       <section className="overview-band">
-        <BandLabel index="06" title="Contribution" question="Who moved the needle?" />
+        <BandLabel index={band.contribution} title="Contribution" question="Who moved the needle?" />
         <div className="insight-grid dual">
           <article className="panel">
             <div className="panel-header">
@@ -714,10 +770,12 @@ export function OverviewPage({
           </article>
         </div>
       </section>
+      ) : null}
 
-      {/* ---- G · Risk: diagnostic, so it sits last ---- */}
+      {/* ---- G · Risk: diagnostic, so it sits last · Advanced ---- */}
+      {advanced ? (
       <section className="overview-band">
-        <BandLabel index="07" title="Risk" question="How rough was the ride?" />
+        <BandLabel index={band.risk} title="Risk" question="How rough was the ride?" />
         <article className="panel risk-panel">
           <div className="panel-header compact">
             <div>
@@ -779,6 +837,16 @@ export function OverviewPage({
           </div>
         </article>
       </section>
+      ) : null}
+
+      {/* Basic drops three bands, so say which — a page that just ends shorter
+          reads as data gone missing rather than data set aside. */}
+      {advanced ? null : (
+        <p className="muted-note overview-basic-note">
+          Ledger reconciliation, per-position contribution and the risk profile
+          are in Advanced.
+        </p>
+      )}
     </>
   );
 }

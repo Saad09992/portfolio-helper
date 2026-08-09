@@ -11,6 +11,7 @@ import {
   storageKey,
 } from "../utils";
 import { normalizeHolding } from "./holdings";
+import { DEFAULT_VIEW_MODE, isViewMode, type ViewMode } from "../overviewBands";
 import {
   DEFAULT_FEE_CONFIG,
   normalizeFeeConfig,
@@ -36,6 +37,8 @@ export const targetPresetStorageKey = `${storageKey}:target-presets`;
 export const investStorageKey = `${storageKey}:investments`;
 export const historyStorageKey = `${storageKey}:history`;
 export const lastFetchedStorageKey = `${storageKey}:last-fetched`;
+export const viewModeStorageKey = `${storageKey}:view-mode`;
+export const moneyHiddenStorageKey = `${storageKey}:money-hidden`;
 
 export const emptyCashBuckets: CashBuckets = { available: 0 };
 
@@ -161,6 +164,36 @@ export function loadFeeConfig(): FeeConfig {
 export function saveFeeConfig(config: FeeConfig): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(feeConfigStorageKey, JSON.stringify(config));
+}
+
+/**
+ * How much of the Overview page to show. Stored as a bare string rather than
+ * JSON — it is one word, and validating it is cheaper than parsing it.
+ */
+export function loadViewMode(): ViewMode {
+  if (typeof window === "undefined") return DEFAULT_VIEW_MODE;
+
+  const raw = window.localStorage.getItem(viewModeStorageKey);
+  return isViewMode(raw) ? raw : DEFAULT_VIEW_MODE;
+}
+
+export function saveViewMode(mode: ViewMode): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(viewModeStorageKey, mode);
+}
+
+/**
+ * Whether rupee figures are masked. Defaults to visible: a portfolio app that
+ * opens showing nothing would read as broken, and the button is one click.
+ */
+export function loadMoneyHidden(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(moneyHiddenStorageKey) === "1";
+}
+
+export function saveMoneyHidden(hidden: boolean): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(moneyHiddenStorageKey, hidden ? "1" : "0");
 }
 
 export function loadLastFetchedAt(): string | null {

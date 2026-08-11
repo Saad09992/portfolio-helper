@@ -159,10 +159,10 @@ describe("runDailySync freshness handling", () => {
     expect(lines.join("\n")).toMatch(/sarmaaya/);
   });
 
-  // Known gap, deliberately not relaxed: a mixed run means at least one primary
-  // quote exists, so the shared-stamp justification does not apply. Documented
-  // in DEPLOY_CLOUDFLARE.md so it isn't mistaken for an oversight.
-  it("stays strict when sources are mixed", async () => {
+  // Regression: this case used to skip. It is the failure that stopped the
+  // nightly snapshot for two days once dps began recovering intermittently —
+  // an all-fallback night worked, but a partially-recovered one did not.
+  it("snapshots when sources are mixed, exempting only the fallback quotes", async () => {
     quotes.value = [
       quote("PSO", "dps", POST_CLOSE, 360),
       quote("SYS", "sarmaaya", PRE_CLOSE, 140),
@@ -171,8 +171,25 @@ describe("runDailySync freshness handling", () => {
 
     const res = await runDailySync({ db, force: true, log: () => {} });
 
+    expect(res.ran).toBe(true);
+    expect(res.freshnessRule).toBe("relaxed-mixed");
+    expect((await loadBundle(db)).history).toHaveLength(1);
+  });
+
+  // The exemption must not become a blanket bypass: a primary-source quote from
+  // before the close is genuinely unsettled and still has to block.
+  it("still skips when a primary quote is pre-close, even alongside a fallback", async () => {
+    quotes.value = [
+      quote("PSO", "dps", PRE_CLOSE, 360),
+      quote("SYS", "sarmaaya", PRE_CLOSE, 140),
+    ];
+    const db = await seeded();
+
+    const res = await runDailySync({ db, force: true, log: () => {} });
+
     expect(res.ran).toBe(false);
     expect(res.reason).toBe("quotes-stale");
+    expect((await loadBundle(db)).history).toHaveLength(0);
   });
 
   it("ignores the freshness gate entirely on non-trading days", async () => {

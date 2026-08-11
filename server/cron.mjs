@@ -31,16 +31,32 @@ function pkCloseInstantMs(pkDate) {
   return Date.UTC(y, m - 1, d, 10, 30, 0);
 }
 
-// Split quotes into fresh (asOf >= today's PKT close) and stale.
-export function quoteFreshness(quotes, closeMs) {
+/**
+ * Split quotes into fresh (asOf >= today's PKT close) and stale.
+ *
+ * With `exemptFallbackSources`, a quote from a non-primary source is treated as
+ * fresh without consulting its timestamp. Fallback sources report a shared
+ * data-refresh stamp rather than a per-trade time, so comparing it to the close
+ * tests the wrong thing — see the rule selection in runDailySync.
+ */
+export function quoteFreshness(quotes, closeMs, { exemptFallbackSources = false } = {}) {
   const fresh = [];
   const stale = [];
   for (const q of quotes) {
+    if (exemptFallbackSources && isFallbackQuote(q)) {
+      fresh.push(q);
+      continue;
+    }
     const ts = q && q.asOf ? Date.parse(q.asOf) : NaN;
     if (Number.isFinite(ts) && Number.isFinite(closeMs) && ts >= closeMs) fresh.push(q);
     else stale.push(q);
   }
   return { fresh, stale };
+}
+
+/** A quote whose timestamp cannot be compared to the close. */
+function isFallbackQuote(q) {
+  return Boolean(q && q.source && q.source !== PRIMARY_SOURCE);
 }
 
 /**
@@ -68,17 +84,32 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
-export async function runDailySync({ db, log = defaultLog, force = false } = {}) {
+/**
+ * Fetch prices and record the daily snapshot.
+ *
+ * `force` bypasses the 23:59 PKT window check. `dryRun` performs the whole
+ * decision — fetches, freshness, totals — but skips the write and reports what
+ * it would have done. dryRun exists because the scheduled path is otherwise
+ * unobservable: it runs once a day, and a silent skip looks identical to a
+ * silent crash days later.
+ */
+export async function runDailySync({
+  db,
+  log = defaultLog,
+  force = false,
+  dryRun = false,
+} = {}) {
+  const startedAt = Date.now();
   const bundle = await loadBundleDb(db);
   if (!bundle) {
     log("skip: no portfolio data");
-    return { ran: false, reason: "no-portfolio" };
+    return { ran: false, reason: "no-portfolio", durationMs: Date.now() - startedAt };
   }
 
   if (!force) {
     if (!afterSnapshotTime(pkParts(new Date()))) {
       log("skip: before daily snapshot time (23:59 PKT)");
-      return { ran: false, reason: "outside-window" };
+      return { ran: false, reason: "outside-window", durationMs: Date.now() - startedAt };
     }
   }
 
@@ -90,7 +121,7 @@ export async function runDailySync({ db, log = defaultLog, force = false } = {})
   const nonCash = holdings.filter((h) => !String(h.id ?? "").startsWith("cash-"));
   if (nonCash.length === 0) {
     log("skip: no non-cash holdings");
-    return { ran: false, reason: "no-holdings" };
+    return { ran: false, reason: "no-holdings", durationMs: Date.now() - startedAt };
   }
 
   const { pkDate, isWeekday: tradingDay } = psxCloseStatus();
@@ -106,7 +137,14 @@ export async function runDailySync({ db, log = defaultLog, force = false } = {})
 
   if (stockQuotes.length === 0) {
     log(`skip: 0 quotes returned (stocks ${tickers.length})`);
-    return { ran: false, reason: "no-quotes" };
+    return {
+      ran: false,
+      reason: "no-quotes",
+      tickers: tickers.length,
+      quoteCount: 0,
+      kseSource: kse?.source ?? null,
+      durationMs: Date.now() - startedAt,
+    };
   }
 
   // Freshness gate applies ONLY on PSX trading days — on weekends/holidays
@@ -116,29 +154,39 @@ export async function runDailySync({ db, log = defaultLog, force = false } = {})
   let freshnessRule = "not-applicable";
   if (tradingDay && tickers.length > 0) {
     const closeMs = pkCloseInstantMs(pkDate);
-    const { fresh, stale } = quoteFreshness(stockQuotes, closeMs);
+    // Exempt fallback-sourced quotes from the close comparison; primary-sourced
+    // ones are still held to it, so a genuinely pre-close dps quote still skips.
+    const { fresh, stale } = quoteFreshness(stockQuotes, closeMs, {
+      exemptFallbackSources: true,
+    });
     const missingCount = tickers.length - stockQuotes.length;
+    const exempted = stockQuotes.filter(isFallbackQuote);
 
     if (stale.length === 0 && missingCount === 0) {
-      freshnessRule = "strict";
+      // Three shapes, distinguished for the audit trail:
+      //   strict          every quote from the primary source, all post-close
+      //   relaxed-fallback  no primary source answered at all
+      //   relaxed-mixed   some answered, some fell back
+      //
+      // The mixed case used to skip. That was wrong in exactly the way that
+      // hurts most: an all-fallback night snapshots, and a night where the
+      // primary partially recovers does not — so the job silently stops the
+      // moment the upstream starts flapping, which is what happened when dps
+      // came back after several days of returning 520 from Cloudflare.
+      if (exempted.length === 0) {
+        freshnessRule = "strict";
+      } else {
+        const sources = [...new Set(exempted.map((q) => q.source))].join(",");
+        const newest = exempted.map((q) => q.asOf).filter(Boolean).sort().pop();
+        freshnessRule =
+          exempted.length === stockQuotes.length ? "relaxed-fallback" : "relaxed-mixed";
+        log(
+          `freshness: ${freshnessRule.toUpperCase()} — ${exempted.length}/${stockQuotes.length} ` +
+            `quote(s) from fallback source(s) [${sources}] exempted from the close-time gate; ` +
+            `newest fallback asOf=${newest ?? "unknown"} (close was 15:30 PKT on ${pkDate})`,
+        );
+      }
       freshStock = fresh;
-    } else if (missingCount === 0 && allFromFallback(stockQuotes)) {
-      // Relaxed rule: every quote came from a fallback whose timestamp is a
-      // shared refresh stamp, not a trade time, so the close comparison can't
-      // be trusted. Accept what we have and say so loudly — a snapshot built
-      // on a stale stamp is recoverable, a year of missing history is not.
-      const sources = [...new Set(stockQuotes.map((q) => q.source))].join(",");
-      const newest = stockQuotes
-        .map((q) => q.asOf)
-        .filter(Boolean)
-        .sort()
-        .pop();
-      log(
-        `freshness: RELAXED — all ${stockQuotes.length} quotes from fallback source(s) [${sources}]; ` +
-          `close-time gate skipped, newest asOf=${newest ?? "unknown"} (expected >= 15:30 PKT on ${pkDate})`,
-      );
-      freshnessRule = "relaxed-fallback";
-      freshStock = stockQuotes;
     } else {
       const staleTickers = stale.map((q) => q.ticker).join(",");
       log(
@@ -150,6 +198,12 @@ export async function runDailySync({ db, log = defaultLog, force = false } = {})
         fresh: fresh.length,
         stale: stale.length,
         missing: missingCount,
+        tickers: tickers.length,
+        quoteCount: stockQuotes.length,
+        sources: [...new Set(stockQuotes.map((q) => q.source))].join(","),
+        kseSource: kse?.source ?? null,
+        pkDate,
+        durationMs: Date.now() - startedAt,
       };
     }
   }
@@ -205,6 +259,23 @@ export async function runDailySync({ db, log = defaultLog, force = false } = {})
     savedAt: nowIso,
   };
 
+  if (dryRun) {
+    log(`dry-run: would snapshot (freshness=${freshnessRule}) — not writing`);
+    return {
+      ran: false,
+      reason: "dry-run",
+      wouldSnapshot: true,
+      entry,
+      quoteCount,
+      freshnessRule,
+      tickers: tickers.length,
+      sources: [...new Set(freshStock.map((q) => q.source))].join(","),
+      kseSource: kse?.source ?? null,
+      pkDate,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
   await serializeSave(() => saveBundle(db, nextBundle));
 
   log(
@@ -212,5 +283,15 @@ export async function runDailySync({ db, log = defaultLog, force = false } = {})
       `freshness=${freshnessRule}, kse100=${kse ? `${kse.current} via ${kse.source}` : "unavailable"}, ` +
       `value=${totals.totalValue.toFixed(2)}, gainLoss=${totals.totalGainLoss.toFixed(2)}, pkDate=${pkDateOf(snapshotIso)}`,
   );
-  return { ran: true, entry, quoteCount, freshnessRule };
+  return {
+    ran: true,
+    entry,
+    quoteCount,
+    freshnessRule,
+    tickers: tickers.length,
+    sources: [...new Set(freshStock.map((q) => q.source))].join(","),
+    kseSource: kse?.source ?? null,
+    pkDate,
+    durationMs: Date.now() - startedAt,
+  };
 }

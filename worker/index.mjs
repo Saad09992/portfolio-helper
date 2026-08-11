@@ -127,6 +127,64 @@ registerApiRoutes(app, {
   getStocks,
 });
 
+/**
+ * Persist the outcome of a sync attempt.
+ *
+ * Written for both scheduled and manual runs, including the ones that decline
+ * to snapshot. Without this a skipped night is indistinguishable from a crashed
+ * one after Cloudflare's log window closes.
+ */
+async function recordRun(db, res, error) {
+  try {
+    await db.run(
+      `INSERT INTO cron_runs
+         (ran_at, pk_date, ran, reason, rule, quotes, tickers, sources, kse_source, error, duration_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        new Date().toISOString(),
+        res?.pkDate ?? null,
+        res?.ran ? 1 : 0,
+        res?.reason ?? null,
+        res?.freshnessRule ?? null,
+        res?.quoteCount ?? null,
+        res?.tickers ?? null,
+        res?.sources ?? null,
+        res?.kseSource ?? null,
+        error ? String(error?.stack ?? error).slice(0, 2000) : null,
+        res?.durationMs ?? null,
+      ],
+    );
+  } catch (err) {
+    // Never let bookkeeping mask the run it is describing.
+    console.error("[psx:cron] failed to record run:", err);
+  }
+}
+
+// Manual trigger + audit read, both session-gated by the middleware above.
+//
+// ?dry=1 runs the full decision without writing, which is the only way to see
+// what the nightly job would do without waiting for 23:59 PKT.
+app.post("/api/admin/sync", async (c) => {
+  const db = d1Adapter(c.env.DB);
+  const dryRun = c.req.query("dry") != null;
+  const force = c.req.query("force") != null;
+  try {
+    const res = await runDailySync({ db, dryRun, force });
+    await recordRun(db, res, null);
+    return c.json(res);
+  } catch (err) {
+    await recordRun(db, null, err);
+    return c.json({ error: String(err?.message ?? err) }, 500);
+  }
+});
+
+app.get("/api/admin/runs", async (c) => {
+  const rows = await d1Adapter(c.env.DB).all(
+    "SELECT * FROM cron_runs ORDER BY id DESC LIMIT 20",
+  );
+  return c.json(rows);
+});
+
 // Unmatched API paths (wrong method, bad path) → 404 JSON. Must precede the
 // asset handler so an API miss never falls through to index.html.
 app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
@@ -143,10 +201,14 @@ export default {
   // invocations do not pass through the HTTP gate above, so the session
   // requirement does not affect the nightly snapshot.
   async scheduled(controller, env, ctx) {
+    const db = d1Adapter(env.DB);
     ctx.waitUntil(
-      runDailySync({ db: d1Adapter(env.DB) }).catch((err) =>
-        console.error("[psx:cron] run failed:", err),
-      ),
+      runDailySync({ db })
+        .then((res) => recordRun(db, res, null))
+        .catch(async (err) => {
+          console.error("[psx:cron] run failed:", err);
+          await recordRun(db, null, err);
+        }),
     );
   },
 };

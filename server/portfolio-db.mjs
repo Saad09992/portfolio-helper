@@ -14,6 +14,16 @@ async function getMeta(db, key) {
   return row ? row.value : null;
 }
 
+/**
+ * The current bundle version, used for optimistic concurrency on save.
+ *
+ * `savedAt` doubles as the version token: every write sets it, so a client that
+ * still holds an older value is by definition working from a stale bundle.
+ */
+export async function currentVersion(db) {
+  return getMeta(db, "savedAt");
+}
+
 // Assemble the bundle from the normalized tables. Returns null when nothing has
 // ever been saved (no savedAt sentinel) so the client falls back to its seed,
 // matching the old "portfolio.json missing → null" behavior.

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { loadBundle, saveBundle } from "./portfolio-db.mjs";
+import { currentVersion, loadBundle, saveBundle } from "./portfolio-db.mjs";
 import { fetchWithTimeout, withRetry } from "./scrape-util.mjs";
 import { fetchQuoteSarmaaya, fetchDividendSarmaaya } from "./sarmaaya.mjs";
 import { fetchKse100 } from "./psx-index.mjs";
@@ -109,11 +109,35 @@ export function registerApiRoutes(app, { getDb, getStocks }) {
     }
   });
 
+  // Optimistic concurrency. The client echoes back the `savedAt` it loaded; if
+  // the stored one has moved since, the write is refused rather than applied.
+  //
+  // Saves are whole-bundle full-replace, so without this the last writer wins
+  // unconditionally — which meant a browser tab left open across 23:59 would
+  // push its pre-cron copy back over the nightly snapshot, silently undoing it.
+  // Clients that send no base version are still accepted, so an older tab
+  // degrades to the previous behaviour rather than breaking.
   app.post("/api/portfolio/save", async (c) => {
     const body = await c.req.text();
+    const base = c.req.header("x-psx-base-savedat");
     const db = getDb(c);
     return serializeSave(async () => {
       try {
+        if (base) {
+          const stored = await currentVersion(db);
+          if (stored && stored !== base) {
+            return c.json(
+              {
+                error: "conflict",
+                message:
+                  "The stored portfolio changed since this copy was loaded. Reload and reapply.",
+                currentSavedAt: stored,
+                bundle: await loadBundle(db),
+              },
+              409,
+            );
+          }
+        }
         await saveBundle(db, body);
         return c.json({ ok: true });
       } catch (err) {

@@ -3,11 +3,17 @@ import type { ECharts, EChartsCoreOption } from "echarts/core";
 import { EChart } from "./EChart";
 import { chartTokens } from "../../theme/chartTokens";
 import { getSliceColor } from "./palette";
-import { formatCompactCurrency, formatCurrency, formatPercent } from "../../utils";
+import {
+  formatCompactCurrency,
+  formatCurrency,
+  formatPercent,
+  formatSignedPercent,
+} from "../../utils";
 import { ChipGroup } from "../ui/ChipGroup";
 import { UI_LIMITS } from "../../constants";
 import {
   BASIS_LABEL,
+  allocationReturn,
   allocationTotal,
   buildAllocationSlices,
   valueFor,
@@ -43,6 +49,7 @@ export function AllocationDonut({
     [holdings, groupBy, basis],
   );
   const total = useMemo(() => allocationTotal(slices, basis), [slices, basis]);
+  const bookReturn = useMemo(() => allocationReturn(slices), [slices]);
 
   const option = useMemo<EChartsCoreOption>(() => {
     const t = chartTokens();
@@ -63,6 +70,7 @@ export function AllocationDonut({
             slice.label,
             formatCurrency(valueFor(slice, basis)),
             `market ${formatPercent(slice.marketWeight)} · cost ${formatPercent(slice.costWeight)}`,
+            `return ${formatSignedPercent(slice.returnPct * 100, 2)}`,
           ].join("<br/>");
         },
       },
@@ -173,6 +181,11 @@ export function AllocationDonut({
               <span aria-hidden="true">{basis === key ? " ↓" : ""}</span>
             </button>
           ))}
+          {/* The weights are shares of a pie and sum to 100% however the money
+              went, so a slice can gain weight while losing money — it only has
+              to fall less than the rest. This column is the one that can say
+              which happened. */}
+          <span className="alloc-legend-return-head">Return</span>
         </div>
 
         {shown.map((slice, i) => {
@@ -187,6 +200,11 @@ export function AllocationDonut({
               </span>
               <span className={`num ${basis === "cost" ? "is-active" : ""}`.trim()}>
                 {formatPercent(slice.costWeight)}
+              </span>
+              <span
+                className={`num alloc-legend-return ${slice.returnPct >= 0 ? "positive" : "negative"}`}
+              >
+                {formatSignedPercent(slice.returnPct * 100, 2)}
               </span>
             </>
           );
@@ -211,6 +229,19 @@ export function AllocationDonut({
             </div>
           );
         })}
+
+        {/* The benchmark for every row above: a sector gains weight by beating
+            this number, not by being profitable. */}
+        <div className="alloc-legend-row alloc-legend-total">
+          <span className="alloc-legend-name">Whole book</span>
+          <span className="num">100%</span>
+          <span className="num">100%</span>
+          <span
+            className={`num alloc-legend-return ${bookReturn >= 0 ? "positive" : "negative"}`}
+          >
+            {formatSignedPercent(bookReturn * 100, 2)}
+          </span>
+        </div>
 
         {rest.length > 0 ? (
           <p className="alloc-legend-rest">

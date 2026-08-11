@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  allocationReturn,
   allocationTotal,
   buildAllocationSlices,
   valueFor,
@@ -153,6 +154,61 @@ describe("one denominator for the whole band", () => {
     // 40k + 30k + 20k of a 100k invested book.
     expect(top3).toBeCloseTo(0.9, 10);
     expect(slices[0].marketWeight).toBeCloseTo(0.4, 10);
+  });
+});
+
+/**
+ * The reason the Return column exists, pinned with the real numbers that
+ * prompted it: PSO sat at 27.4% of market on 26.0% of cost — a bigger share of
+ * the pie than of the money — while losing 0.81%. It gained weight by falling
+ * less than the book, not by making money.
+ */
+describe("weight shift is not profit", () => {
+  const book: AllocationInput[] = [
+    { ticker: "SYS", sector: "Tech", marketValue: 3_348_250, costValue: 3_748_000 },
+    { ticker: "NETSOL", sector: "Tech", marketValue: 615_700, costValue: 629_200 },
+    { ticker: "PSO", sector: "Oil", marketValue: 2_090_580, costValue: 2_107_560 },
+    { ticker: "HUBC", sector: "Power", marketValue: 1_585_725, costValue: 1_608_675 },
+  ];
+
+  it("lets a losing slice outweigh its cost share", () => {
+    const slices = buildAllocationSlices(book, "sector", "market");
+    const oil = slices.find((s) => s.label === "Oil")!;
+
+    expect(oil.marketWeight).toBeCloseTo(0.2736, 4);
+    expect(oil.costWeight).toBeCloseTo(0.2604, 4);
+    // Bigger share of market than of cost...
+    expect(oil.marketWeight).toBeGreaterThan(oil.costWeight);
+    // ...and still down on its own money.
+    expect(oil.returnPct).toBeLessThan(0);
+    expect(oil.returnPct).toBeCloseTo(-0.0081, 4);
+  });
+
+  it("explains the shift by comparing each slice to the book", () => {
+    const slices = buildAllocationSlices(book, "sector", "market");
+    const bookReturn = allocationReturn(slices);
+    expect(bookReturn).toBeCloseTo(-0.056, 3);
+
+    for (const slice of slices) {
+      const gainedWeight = slice.marketWeight > slice.costWeight;
+      // The whole rule in one line: weight follows relative performance.
+      expect(gainedWeight).toBe(slice.returnPct > bookReturn);
+    }
+
+    // Every sector is down, yet the weights still sum to 100%.
+    expect(slices.every((s) => s.returnPct < 0)).toBe(true);
+    expect(slices.reduce((sum, s) => sum + s.marketWeight, 0)).toBeCloseTo(1, 10);
+  });
+
+  it("returns 0 rather than dividing by a zero cost", () => {
+    const [free] = buildAllocationSlices(
+      [{ ticker: "FREE", sector: "Bonus", marketValue: 500, costValue: 0 }],
+      "ticker",
+      "market",
+    );
+    expect(free.returnPct).toBe(0);
+    expect(Number.isFinite(free.returnPct)).toBe(true);
+    expect(allocationReturn([free])).toBe(0);
   });
 });
 

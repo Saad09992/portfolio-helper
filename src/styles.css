@@ -4511,7 +4511,7 @@ kbd {
 .alloc-legend-head,
 .alloc-legend-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 68px 68px;
+  grid-template-columns: minmax(0, 1fr) 62px 62px 72px;
   align-items: center;
   gap: var(--s2);
 }
@@ -4603,5 +4603,50 @@ kbd {
   margin: var(--s2) 0 0;
   padding: 0 var(--s2);
   font-size: 0.76rem;
+  color: var(--muted-2);
+}
+
+/* Return column: the antidote to reading two weight columns as profit. Never
+   dimmed by the basis switch — it is the one column that does not depend on
+   which side the ring is drawn from. */
+.alloc-legend-return-head {
+  justify-self: end;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+
+.alloc-legend-row .num.alloc-legend-return {
+  font-weight: 600;
+}
+
+.alloc-legend-row .num.alloc-legend-return.positive {
+  color: var(--pos);
+}
+
+.alloc-legend-row .num.alloc-legend-return.negative {
+  color: var(--neg);
+}
+
+/* The book's own return, so each row above has something to be measured
+   against rather than looking absolute. */
+.alloc-legend-total {
+  margin-top: var(--s1);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--panel-border);
+  cursor: default;
+}
+
+.alloc-legend-total:hover {
+  background: none;
+}
+
+.alloc-legend-total .alloc-legend-name {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.68rem;
   color: var(--muted-2);
 }

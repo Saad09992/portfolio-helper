@@ -29,6 +29,18 @@ export type AllocationSlice = {
   /** Fractions of the respective totals, 0..1. Zero when the total is zero. */
   marketWeight: number;
   costWeight: number;
+  /**
+   * The slice's own return as a fraction — `marketValue / costValue - 1`.
+   *
+   * The reason this exists: the two weights are shares of a pie, and shares sum
+   * to 100% however the money went. A slice's market weight can sit ABOVE its
+   * cost weight while it is losing money, as long as it lost less than the rest
+   * of the book. Without a return column that pair reads as profit, which is
+   * exactly the wrong conclusion.
+   *
+   * Zero when there is no cost — a bonus issue has no basis to return against.
+   */
+  returnPct: number;
 };
 
 export function valueFor(slice: AllocationSlice, basis: AllocationBasis): number {
@@ -78,6 +90,7 @@ export function buildAllocationSlices(
         costValue: holding.costValue,
         marketWeight: 0,
         costWeight: 0,
+        returnPct: 0,
       });
     }
   }
@@ -89,6 +102,7 @@ export function buildAllocationSlices(
   for (const slice of slices) {
     slice.marketWeight = marketTotal > 0 ? slice.marketValue / marketTotal : 0;
     slice.costWeight = costTotal > 0 ? slice.costValue / costTotal : 0;
+    slice.returnPct = slice.costValue > 0 ? slice.marketValue / slice.costValue - 1 : 0;
   }
 
   // Ties broken by name so the order — and therefore every slice colour — is
@@ -104,4 +118,15 @@ export function allocationTotal(
   basis: AllocationBasis,
 ): number {
   return slices.reduce((sum, s) => sum + valueFor(s, basis), 0);
+}
+
+/**
+ * The whole book's return — the benchmark every slice's `returnPct` should be
+ * read against, since a slice gains weight by beating this number rather than
+ * by making money.
+ */
+export function allocationReturn(slices: readonly AllocationSlice[]): number {
+  const market = allocationTotal(slices, "market");
+  const cost = allocationTotal(slices, "cost");
+  return cost > 0 ? market / cost - 1 : 0;
 }

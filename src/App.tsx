@@ -242,9 +242,14 @@ function App() {
   // holdings and the hand-typed cash figure, so the app behaves exactly as it
   // did until the user opts into the ledger.
   const effectiveHoldings = ledger.holdings;
-  const effectiveCash: CashBuckets = ledger.hasLedger
-    ? { available: ledger.cash }
-    : cashDraft;
+  // Memoised on the value, not rebuilt per render. This object is a dependency
+  // of the persistence effect below, so a fresh identity each render made that
+  // effect fire on every render — turning any re-render, from any cause, into a
+  // whole-bundle write. The debounce hid the cost but did not remove it.
+  const effectiveCash: CashBuckets = useMemo(
+    () => (ledger.hasLedger ? { available: ledger.cash } : cashDraft),
+    [ledger.hasLedger, ledger.cash, cashDraft],
+  );
 
   // Cmd/Ctrl-K opens the jump-to palette. Registered once on the document so it
   // works from anywhere, including while a chart has focus.

@@ -56,7 +56,13 @@ Thumbs.db
 # untracked but not ignored, so a stray `git add -A` would have committed them.
 data/
 LedgerReport-*.pdf
-# Broker statement PDFs and anything the importer derives from them.
+# Broker statement PDFs and anything the importer derives from them. The
+# patterns are deliberately broad: these arrive with whatever name the broker's
+# portal gives them, and one `git add -A` is all it takes to publish a financial
+# record. `latest_ledger.pdf` reached a commit that way.
 statements/
 *-bundle.json
 statement-bundle.json
+*.pdf
+*ledger*.pdf
+*Statement*.pdf

@@ -1564,6 +1564,7 @@ function App() {
           saveCashBuckets={saveCashBuckets}
           ledgerActive={ledger.hasLedger}
           ledgerCash={ledger.cash}
+          withheldCash={ledger.feeConfig.withheldCash}
           today={pkDateOf(new Date().toISOString())}
           addCashEntry={(type, amount, date, note) =>
             ledger.addTransaction({

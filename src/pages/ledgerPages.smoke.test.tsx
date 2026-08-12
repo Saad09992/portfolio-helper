@@ -254,6 +254,7 @@ describe("IncomePage", () => {
         cashError=""
         saveCashBuckets={noop}
         ledgerActive
+        withheldCash={0}
         ledgerCash={state.cash}
         today="2026-07-23"
         addCashEntry={noop}
@@ -261,6 +262,51 @@ describe("IncomePage", () => {
     );
     expect(html).toContain("Derived from the ledger");
     expect(html).toContain("Record deposit");
+  });
+
+  /**
+   * The broker reports a ledger balance and a smaller tradeable figure, and both
+   * get reconciled. Showing only the balance reads as buying power the account
+   * does not have — which is exactly how it was wrong.
+   */
+  it("separates the ledger balance from what can actually be traded", () => {
+    const html = renderToString(
+      <IncomePage
+        cashDraft={{ available: 0 }}
+        setCashDraft={noop}
+        cashError=""
+        saveCashBuckets={noop}
+        ledgerActive
+        withheldCash={500_000}
+        ledgerCash={1_636_538}
+        today="2026-08-12"
+        addCashEntry={noop}
+      />,
+    );
+    expect(html).toContain("Ledger balance");
+    expect(html).toContain("16,365.38");
+    expect(html).toContain("Tradeable");
+    expect(html).toContain("11,365.38");
+    expect(html).toContain("Withheld");
+  });
+
+  it("drops the withheld tile when the broker holds nothing back", () => {
+    const html = renderToString(
+      <IncomePage
+        cashDraft={{ available: 0 }}
+        setCashDraft={noop}
+        cashError=""
+        saveCashBuckets={noop}
+        ledgerActive
+        withheldCash={0}
+        ledgerCash={1_636_538}
+        today="2026-08-12"
+        addCashEntry={noop}
+      />,
+    );
+    expect(html).not.toContain(">Withheld<");
+    // Nothing withheld, so the two figures are the same number.
+    expect(html.match(/16,365\.38/g)).toHaveLength(2);
   });
 
   it("keeps the manual cash field before the ledger exists", () => {
@@ -271,6 +317,7 @@ describe("IncomePage", () => {
         cashError=""
         saveCashBuckets={noop}
         ledgerActive={false}
+        withheldCash={0}
         ledgerCash={0}
         today="2026-07-23"
         addCashEntry={noop}

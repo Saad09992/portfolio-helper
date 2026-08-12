@@ -11,8 +11,10 @@ export type IncomePageProps = {
   saveCashBuckets: (event: React.FormEvent<HTMLFormElement>) => void;
   /** true once the ledger derives the cash balance */
   ledgerActive: boolean;
-  /** paisa — balance implied by the ledger */
+  /** paisa — balance implied by the ledger, including any withheld cash */
   ledgerCash: number;
+  /** paisa — broker-held cash that cannot be traded with. */
+  withheldCash: number;
   today: string;
   addCashEntry: (type: "DEPOSIT" | "WITHDRAW", amount: number, date: string, note: string) => void;
 };
@@ -24,6 +26,7 @@ export function IncomePage({
   saveCashBuckets,
   ledgerActive,
   ledgerCash,
+  withheldCash,
   today,
   addCashEntry,
 }: IncomePageProps) {
@@ -31,6 +34,8 @@ export function IncomePage({
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+
+  const tradeable = ledgerCash - withheldCash;
 
   function submit(type: "DEPOSIT" | "WITHDRAW") {
     const paisa = rupeesToPaisa(Number(amount) || 0);
@@ -89,14 +94,37 @@ export function IncomePage({
           <span className="panel-meta">Derived from the ledger</span>
         </div>
 
+        {/* Both figures, named as the broker names them, because both get
+            reconciled: the ledger balance against the statement, and the
+            tradeable figure against what the app says can be spent. Showing only
+            the balance overstates buying power; showing only the tradeable
+            figure hides money the client still owns. */}
         <div className="kpi-grid">
           <div className="kpi-tile">
-            <p>Available cash</p>
+            <p>Ledger balance</p>
             <strong className={`num ${ledgerCash < 0 ? "negative" : ""}`}>
               {formatCurrency(ledgerCash)}
             </strong>
-            <span>deposits − buys + sells + dividends</span>
+            <span>everything the account holds</span>
           </div>
+          <div className="kpi-tile">
+            <p>Tradeable</p>
+            <strong className={`num ${tradeable < 0 ? "negative" : ""}`}>
+              {formatCurrency(tradeable)}
+            </strong>
+            <span>
+              {withheldCash > 0
+                ? `less ${formatCurrency(withheldCash)} withheld by the broker`
+                : "deposits − buys + sells + dividends"}
+            </span>
+          </div>
+          {withheldCash > 0 ? (
+            <div className="kpi-tile">
+              <p>Withheld</p>
+              <strong className="num">{formatCurrency(withheldCash)}</strong>
+              <span>yours, but the broker will not release it to trade</span>
+            </div>
+          ) : null}
         </div>
 
         {ledgerCash < 0 ? (

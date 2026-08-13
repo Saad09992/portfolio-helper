@@ -201,6 +201,36 @@ describe("login throttle", () => {
     expect(await checkThrottle(db, IP)).toMatchObject({ locked: false, row: null });
   });
 
+  // A transient D1 error while reading the counter once turned every login into
+  // an HTTP 500. The throttle is defence-in-depth; it must never be the thing
+  // that denies access when the password itself is correct.
+  it("allows the attempt when the throttle store is unreadable", async () => {
+    const broken = {
+      first: () => Promise.reject(new Error("D1_ERROR: internal error; reference = abc")),
+      run: () => Promise.reject(new Error("D1_ERROR: internal error; reference = abc")),
+      all: () => Promise.reject(new Error("nope")),
+      batch: () => Promise.reject(new Error("nope")),
+    };
+
+    const state = await checkThrottle(broken, "203.0.113.9");
+    expect(state.locked).toBe(false);
+    expect(state.degraded).toBe(true);
+  });
+
+  it("does not throw when the throttle store is unwritable", async () => {
+    const broken = {
+      first: () => Promise.resolve(null),
+      run: () => Promise.reject(new Error("D1_ERROR: internal error")),
+      all: () => Promise.resolve([]),
+      batch: () => Promise.reject(new Error("nope")),
+    };
+
+    await expect(recordFailure(broken, "203.0.113.9", null)).resolves.toMatchObject({
+      degraded: true,
+    });
+    await expect(clearFailures(broken, "203.0.113.9")).resolves.toBeUndefined();
+  });
+
   it("tracks IPs independently", async () => {
     const db = freshTestDb();
     let row = null;

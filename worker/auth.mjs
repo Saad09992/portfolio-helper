@@ -200,18 +200,30 @@ export function clearCookie() {
  * acceptable margin against online guessing when each guess must still beat
  * PBKDF2; it is documented rather than papered over.
  */
+// The throttle degrades open, deliberately. It is defence-in-depth against
+// online guessing; the password is the actual gate. A transient D1 error while
+// reading the counter once turned every login into an HTTP 500 and locked the
+// owner out of the app entirely — a far worse outcome than briefly not counting
+// a failed attempt. Failures are logged so a persistently broken throttle is
+// visible rather than silent.
 export async function checkThrottle(db, ip, now = Date.now()) {
-  const row = await db.first(
-    "SELECT failures, window_start, locked_until FROM login_attempts WHERE ip = ?",
-    [ip],
-  );
+  let row = null;
+  try {
+    row = await db.first(
+      "SELECT failures, window_start, locked_until FROM login_attempts WHERE ip = ?",
+      [ip],
+    );
+  } catch (err) {
+    console.error("[psx:auth] throttle read failed, allowing the attempt:", err);
+    return { locked: false, row: null, degraded: true };
+  }
   if (row?.locked_until && row.locked_until > now) {
     return { locked: true, retryAfterMs: row.locked_until - now };
   }
   return { locked: false, row: row ?? null };
 }
 
-export async function recordFailure(db, ip, row, now = Date.now()) {
+async function recordFailureInner(db, ip, row, now = Date.now()) {
   const inWindow = row && now - row.window_start < THROTTLE_WINDOW_MS;
   const failures = inWindow ? row.failures + 1 : 1;
   const windowStart = inWindow ? row.window_start : now;
@@ -232,6 +244,21 @@ export async function recordFailure(db, ip, row, now = Date.now()) {
   return { failures, lockedUntil };
 }
 
+/** Record a failed attempt. Never throws — see checkThrottle. */
+export async function recordFailure(db, ip, row, now = Date.now()) {
+  try {
+    return await recordFailureInner(db, ip, row, now);
+  } catch (err) {
+    console.error("[psx:auth] throttle write failed, attempt not counted:", err);
+    return { failures: 0, lockedUntil: null, degraded: true };
+  }
+}
+
+/** Clear a caller's failures after a successful login. Never throws. */
 export async function clearFailures(db, ip) {
-  await db.run("DELETE FROM login_attempts WHERE ip = ?", [ip]);
+  try {
+    await db.run("DELETE FROM login_attempts WHERE ip = ?", [ip]);
+  } catch (err) {
+    console.error("[psx:auth] throttle clear failed:", err);
+  }
 }

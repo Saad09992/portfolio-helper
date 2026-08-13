@@ -12,6 +12,32 @@
 //   run(sql, params)   -> void
 //   batch(statements)  -> void      // atomic; statements are {sql, params}
 
+// D1 occasionally answers a perfectly valid query with a transient
+// "D1_ERROR: internal error; reference = ...". One of those on a read was
+// enough to turn the whole app into an HTTP 500, so reads get one retry.
+//
+// Reads only. Retrying a write risks applying it twice when the failure came
+// after the write landed — and saveBundle's batch is large enough that a
+// duplicate would be worth avoiding even though it is a full replace.
+const RETRY_DELAY_MS = 120;
+
+function isTransientD1(err) {
+  return /D1_ERROR|internal error|Network connection lost|storage caused object to be reset/i.test(
+    String(err?.message ?? err),
+  );
+}
+
+async function withD1Retry(label, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!isTransientD1(err)) throw err;
+    console.warn(`[psx:d1] transient error on ${label}, retrying once:`, String(err?.message ?? err));
+    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    return fn();
+  }
+}
+
 /** D1 backend. `d1` is the binding from `env.DB`. */
 export function d1Adapter(d1) {
   const prep = (sql, params) => {
@@ -24,12 +50,14 @@ export function d1Adapter(d1) {
     kind: "d1",
 
     async first(sql, params = []) {
-      return (await prep(sql, params).first()) ?? null;
+      return withD1Retry("first", async () => (await prep(sql, params).first()) ?? null);
     },
 
     async all(sql, params = []) {
-      const { results } = await prep(sql, params).all();
-      return results ?? [];
+      return withD1Retry("all", async () => {
+        const { results } = await prep(sql, params).all();
+        return results ?? [];
+      });
     },
 
     async run(sql, params = []) {
